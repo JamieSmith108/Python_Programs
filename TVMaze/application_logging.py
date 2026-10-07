@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from helpers import close_logger_handlers, start_rotating_file_log
+from helpers import start_rotating_file_log, stop_rotating_file_log
 
 
 APPLICATION_LOGGER_NAME = "tvmaze_application"
@@ -21,8 +21,7 @@ def start_application_logging(log_file_path: str | Path) -> None:
 
 def stop_application_logging() -> None:
     """Close the application log file cleanly when the program exits."""
-    application_logger = logging.getLogger(APPLICATION_LOGGER_NAME)
-    close_logger_handlers(application_logger)
+    stop_rotating_file_log(APPLICATION_LOGGER_NAME)
 
 
 def log_application_error(action: str, problem: BaseException) -> None:

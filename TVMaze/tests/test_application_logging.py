@@ -1,6 +1,5 @@
 """Check that application problems are written to their own log file."""
 
-import logging
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +11,7 @@ from application_logging import (
     start_application_logging,
     stop_application_logging,
 )
+from helpers import read_log_file
 
 
 class ApplicationLoggingTests(unittest.TestCase):
@@ -30,9 +30,7 @@ class ApplicationLoggingTests(unittest.TestCase):
 
     def read_application_log(self) -> str:
         """Flush the log file and return all saved application notes."""
-        for file_handler in logging.getLogger(APPLICATION_LOGGER_NAME).handlers:
-            file_handler.flush()
-        return self.log_file.read_text(encoding="utf-8")
+        return read_log_file(APPLICATION_LOGGER_NAME, self.log_file)
 
     def test_application_error_saves_the_explanation_and_code_location(self) -> None:
         """An application error should include its type, details, and traceback."""

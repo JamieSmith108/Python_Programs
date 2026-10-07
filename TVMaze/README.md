@@ -36,9 +36,14 @@ You do not need a TVMaze account or an API key.
 
 5. Type a show name and choose **Find program**. You can also press Enter.
 
-The search runs while the window stays open and responsive. TVMaze usually
-returns its closest match. If the result is not the show you meant, try a
-different spelling or a longer show name.
+The search runs while the window stays open and responsive. If TVMaze finds
+more than one program with exactly the same name, a choice window appears.
+Each choice shows its name, the years it ran, and a small picture. Click the
+picture for the program you want to see its full details in the main window.
+If a picture is not available, click the words where the picture would be.
+When there is only one exact name match, its details appear straight away.
+Similar names are not treated as duplicate names. If there is no exact name
+match, the highest-ranked result from TVMaze is shown.
 
 ## Use the buttons
 
@@ -48,6 +53,8 @@ different spelling or a longer show name.
 
 When the **Show images** field is selected, the show picture appears above the
 details. If TVMaze has no picture, the rest of the show details still appear.
+Pictures in the duplicate-name choice window are shown even when **Show
+images** is not selected, so you can tell the choices apart.
 
 ## Choose which details to show
 
@@ -111,15 +118,39 @@ program also understands the older `activity_log_path` setting, so upgrading
 will keep using the log location you already chose. When you save settings,
 the program writes the clearer `api_activity_log_path` name.
 
+## How the program keeps website requests safe
+
+The program only contacts the official TVMaze show-search website at
+`api.tvmaze.com` and the TVMaze picture website at `static.tvmaze.com`. The
+search address in Settings must be the official secure show-search address.
+The program uses TVMaze's matching-list address to find same-name choices.
+Picture addresses must use the TVMaze picture website and an image file type
+the program understands. Other websites, unencrypted addresses, look-alike
+addresses, and unexpected address details are rejected before the program
+tries to connect.
+
+The program also refuses website redirects. An approved TVMaze address cannot
+send the program on to a different website. A show name must not be empty or
+longer than 200 characters, and its website address is also size-limited. The
+wait limit must be from 1 to 120 seconds.
+API replies are limited to 5 megabytes; picture replies are limited to 10
+megabytes. Replies must have the expected kind of content: JSON for show
+details and JPEG, PNG, or WebP for pictures. Picture addresses returned by
+TVMaze are checked again before the program opens them. If a reply fails one
+of these checks, the program records the issue in the API issue-tracking log
+and explains the problem without showing unusable information.
+
 ## What each program file does
 
 - `main.py` starts the desktop program.
 - `gui.py` builds the main window and handles searching, pictures, and Exit.
 - `settings_window.py` builds the separate Settings window.
-- `tvmaze_api.py` asks TVMaze for a show and makes its answer readable.
+- `tvmaze_api.py` asks TVMaze for matching shows, makes their answers readable,
+  and finds the years each show ran.
 - `presentation.py` puts the chosen show details into a clear list.
-- `helpers.py` contains shared text-cleaning, label-making, and logger-cleanup
-  functions used by other files.
+- `helpers.py` contains shared text-cleaning, label-making, picture-resizing,
+  scrollable-list, safe-address, and logger-cleanup functions used by other
+  files.
 - `api_activity_logging.py` records API request and reply details to help find
   API problems.
 - `application_logging.py` records errors and problems that happen inside the
@@ -130,6 +161,12 @@ the program writes the clearer `api_activity_log_path` name.
   locations shown in Settings, outside the program folder.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
+
+The Settings list and the duplicate-program picker use the same shared
+scrollable-list helper. Both log files also use the same shared log-cleanup
+helper. Tests that read saved log notes also use one shared helper to flush
+and read the file. This keeps those repeated jobs in one place, so a future
+change can be made once and used by every part of the program.
 
 ## Read the API issue-tracking log
 
@@ -179,6 +216,8 @@ private.
 
 - **The program cannot find a show:** Check the spelling and try again.
 - **The search cannot connect:** Check your internet connection and try again.
+- **The TVMaze address is rejected:** In Settings, use
+  `https://api.tvmaze.com/singlesearch/shows`. Other websites are not allowed.
 - **The API issue-tracking log cannot be created:** Check that the chosen
   folder exists or can be created, that you have permission to write there,
   and that the log path is outside the program folder.

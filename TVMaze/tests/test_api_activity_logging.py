@@ -1,7 +1,6 @@
 """Check that API troubleshooting details are recorded clearly and safely."""
 
 from email.message import Message
-import logging
 from pathlib import Path
 import tempfile
 import unittest
@@ -13,7 +12,8 @@ from api_activity_logging import (
     start_api_activity_logging,
     stop_api_activity_logging,
 )
-from tvmaze_api import request_tvmaze
+from helpers import read_log_file
+from tvmaze_api import TVMazeError, request_tvmaze
 
 
 class FakeWebResponse:
@@ -35,9 +35,24 @@ class FakeWebResponse:
         """Allow the pretend reply to be used in a with statement."""
         del arguments
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
         """Return a pretend response body."""
+        del size
         return b'{"name":"Hi"}'
+
+
+class UnexpectedContentResponse(FakeWebResponse):
+    """Pretend that a website sent a web page instead of show information."""
+
+    headers = {"content-type": "text/html"}
+
+
+class OversizedContentResponse(FakeWebResponse):
+    """Pretend that a website sent a reply larger than the safety limit."""
+
+    def read(self, size: int = -1) -> bytes:
+        """Return one byte more than the requested maximum."""
+        return b"x" * (size + 1)
 
 
 class APIActivityLoggingTests(unittest.TestCase):
@@ -56,15 +71,16 @@ class APIActivityLoggingTests(unittest.TestCase):
 
     def read_activity_notes(self) -> str:
         """Read all API troubleshooting notes written during this test."""
-        for file_handler in logging.getLogger(API_ACTIVITY_LOGGER_NAME).handlers:
-            file_handler.flush()
-        return self.log_file.read_text(encoding="utf-8")
+        return read_log_file(API_ACTIVITY_LOGGER_NAME, self.log_file)
 
     def test_successful_request_logs_status_and_server_request_id(self) -> None:
         """A successful request should log its status and useful reply headers."""
-        with patch("tvmaze_api.urlopen", return_value=FakeWebResponse()):
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request",
+            return_value=FakeWebResponse(),
+        ):
             response_body = request_tvmaze(
-                "https://api.tvmaze.com/shows?q=Example",
+                "https://api.tvmaze.com/singlesearch/shows?q=Example",
                 "program details",
                 10,
                 "search-reference-123",
@@ -85,17 +101,20 @@ class APIActivityLoggingTests(unittest.TestCase):
         reply_headers["X-Request-ID"] = "server-error-456"
         reply_headers["Set-Cookie"] = "private-cookie-value"
         http_problem = HTTPError(
-            "https://api.tvmaze.com/shows?q=Example",
+            "https://api.tvmaze.com/singlesearch/shows?q=Example",
             503,
             "Service Unavailable",
             reply_headers,
             None,
         )
 
-        with patch("tvmaze_api.urlopen", side_effect=http_problem):
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request",
+            side_effect=http_problem,
+        ):
             with self.assertRaises(HTTPError):
                 request_tvmaze(
-                    "https://api.tvmaze.com/shows?q=Example",
+                    "https://api.tvmaze.com/singlesearch/shows?q=Example",
                     "program details",
                     10,
                     "search-reference-456",
@@ -109,12 +128,12 @@ class APIActivityLoggingTests(unittest.TestCase):
     def test_connection_problem_logs_the_error(self) -> None:
         """A failed network connection should include its reason in the log."""
         with patch(
-            "tvmaze_api.urlopen",
+            "tvmaze_api.open_trusted_tvmaze_request",
             side_effect=OSError("Network is unreachable"),
         ):
             with self.assertRaises(OSError):
                 request_tvmaze(
-                    "https://api.tvmaze.com/shows?q=Example",
+                    "https://api.tvmaze.com/singlesearch/shows?q=Example",
                     "program details",
                     10,
                     "search-reference-789",
@@ -124,6 +143,53 @@ class APIActivityLoggingTests(unittest.TestCase):
         self.assertIn("search-reference-789", notes)
         self.assertIn("OSError", notes)
         self.assertIn("Network is unreachable", notes)
+
+    def test_request_to_an_unapproved_website_is_stopped(self) -> None:
+        """A request must be rejected before a connection is opened."""
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request"
+        ) as open_web_request:
+            with self.assertRaisesRegex(TVMazeError, "not an approved"):
+                request_tvmaze(
+                    "https://evil.example/collect",
+                    "program details",
+                    10,
+                    "unsafe-search-reference",
+                )
+
+        open_web_request.assert_not_called()
+
+    def test_unexpected_reply_type_is_rejected_and_logged(self) -> None:
+        """A web page must not be mistaken for the API's JSON answer."""
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request",
+            return_value=UnexpectedContentResponse(),
+        ):
+            with self.assertRaisesRegex(TVMazeError, "unexpected format"):
+                request_tvmaze(
+                    "https://api.tvmaze.com/singlesearch/shows?q=Example",
+                    "program details",
+                    10,
+                    "unexpected-type-reference",
+                )
+
+        self.assertIn("unexpected type of information", self.read_activity_notes())
+
+    def test_reply_larger_than_safety_limit_is_rejected_and_logged(self) -> None:
+        """An oversized reply must not be read or used without a size limit."""
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request",
+            return_value=OversizedContentResponse(),
+        ):
+            with self.assertRaisesRegex(TVMazeError, "too large"):
+                request_tvmaze(
+                    "https://api.tvmaze.com/singlesearch/shows?q=Example",
+                    "program details",
+                    10,
+                    "oversized-reply-reference",
+                )
+
+        self.assertIn("larger than the allowed", self.read_activity_notes())
 
     def test_api_log_is_created_at_the_chosen_location(self) -> None:
         """The API logger should create folders and a file at the chosen path."""

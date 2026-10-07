@@ -52,6 +52,50 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(loaded_settings.api_activity_log_path, str(log_path))
 
+    def test_settings_accept_only_the_official_tvmaze_search_address(self) -> None:
+        """A safe TVMaze search address should be allowed in the settings."""
+        settings = AppSettings(
+            tvmaze_api_url="https://api.tvmaze.com/singlesearch/shows"
+        )
+
+        save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
+    def test_settings_reject_unapproved_web_addresses(self) -> None:
+        """Settings must reject insecure, look-alike, and unrelated websites."""
+        unsafe_addresses = (
+            "http://api.tvmaze.com/singlesearch/shows",
+            "https://api.tvmaze.com.evil.example/singlesearch/shows",
+            "https://evil.example/api.tvmaze.com/singlesearch/shows",
+            "https://api.tvmaze.com@evil.example/singlesearch/shows",
+            "https://api.tvmaze.com:8443/singlesearch/shows",
+            "https://api.tvmaze.com/shows",
+            "https://api.tvmaze.com/singlesearch/shows?other=address",
+            "https://api.tvmaze.com/singlesearch/shows#other-place",
+        )
+
+        for unsafe_address in unsafe_addresses:
+            with self.subTest(address=unsafe_address):
+                settings = AppSettings(tvmaze_api_url=unsafe_address)
+
+                with self.assertRaisesRegex(SettingsError, "official secure TVMaze"):
+                    save_settings(
+                        settings,
+                        Path(tempfile.gettempdir()) / "settings.json",
+                    )
+
+    def test_settings_reject_an_unreasonable_request_wait_limit(self) -> None:
+        """A saved setting cannot make the app wait for an unlimited time."""
+        settings = AppSettings(request_timeout_seconds=121)
+
+        with self.assertRaisesRegex(SettingsError, "cannot be longer"):
+            save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
+    def test_settings_accept_the_longest_allowed_request_wait_limit(self) -> None:
+        """The longest safe wait limit can be saved."""
+        settings = AppSettings(request_timeout_seconds=120)
+
+        save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
     def test_saved_api_log_path_must_be_full_path(self) -> None:
         """The API log location must be a full file path."""
         settings = AppSettings(api_activity_log_path="API_activity_logging.log")

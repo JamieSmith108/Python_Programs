@@ -7,9 +7,9 @@ from collections.abc import Mapping
 from uuid import uuid4
 
 from helpers import (
-    close_logger_handlers,
     make_one_line,
     start_rotating_file_log,
+    stop_rotating_file_log,
 )
 
 
@@ -42,8 +42,7 @@ def start_api_activity_logging(log_file_path: str | Path) -> None:
 
 def stop_api_activity_logging() -> None:
     """Close the API troubleshooting log cleanly when the program exits."""
-    api_activity_logger = logging.getLogger(API_ACTIVITY_LOGGER_NAME)
-    close_logger_handlers(api_activity_logger)
+    stop_rotating_file_log(API_ACTIVITY_LOGGER_NAME)
 
 
 def make_api_search_reference() -> str:

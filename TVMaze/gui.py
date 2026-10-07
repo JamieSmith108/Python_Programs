@@ -1,12 +1,11 @@
 """Build the main window and connect its buttons to the program."""
 
-from io import BytesIO
 from threading import Thread
 import tkinter as tk
 from tkinter import messagebox, ttk
 from types import TracebackType
 
-from PIL import Image, ImageTk
+from PIL import ImageTk
 
 from application_logging import (
     log_application_error,
@@ -27,13 +26,15 @@ from config import (
     WELCOME_MESSAGE,
     load_settings,
 )
+from helpers import make_scrollable_frame, make_small_picture
 from presentation import format_program_details
 from settings_window import SettingsWindow
 from tvmaze_api import (
     ProgramDetails,
+    ProgramChoice,
     ProgramNotFoundError,
     TVMazeError,
-    find_program_details,
+    find_program_choices,
 )
 
 
@@ -47,6 +48,8 @@ class ProgramFinderWindow:
         self.search_name = tk.StringVar()
         self.status_message = tk.StringVar(value=WELCOME_MESSAGE)
         self.poster_image: ImageTk.PhotoImage | None = None
+        self.choice_window: tk.Toplevel | None = None
+        self.choice_images: list[ImageTk.PhotoImage] = []
 
         self.set_window_size()
         self.build_window()
@@ -154,7 +157,7 @@ class ProgramFinderWindow:
     def find_program(self, program_name: str) -> None:
         """Ask TVMaze for a program and send the answer back to the window."""
         try:
-            program_details = find_program_details(program_name, self.settings)
+            program_choices = find_program_choices(program_name, self.settings)
         except (ProgramNotFoundError, TVMazeError) as error:
             error_message = str(error)
             self.window.after(
@@ -175,7 +178,7 @@ class ProgramFinderWindow:
 
         self.window.after(
             0,
-            lambda: self.finish_with_program(program_details),
+            lambda: self.finish_with_choices(program_choices),
         )
 
     def finish_with_message(self, message: str) -> None:
@@ -197,6 +200,126 @@ class ProgramFinderWindow:
         self.status_message.set(f"Found: {program.fields.get('name', 'program')}")
         self.search_button.configure(state="normal")
 
+    def finish_with_choices(self, program_choices: list[ProgramChoice]) -> None:
+        """Show a picker only when the search found same-name programs."""
+        if len(program_choices) == 1:
+            self.finish_with_program(program_choices[0].program)
+            return
+
+        if not program_choices:
+            self.finish_with_message("TVMaze did not return any matching programs.")
+            return
+
+        self.show_program_choice_popup(program_choices)
+
+    def show_program_choice_popup(
+        self,
+        program_choices: list[ProgramChoice],
+    ) -> None:
+        """Show pictures and years so a person can choose the right show."""
+        popup = tk.Toplevel(self.window)
+        self.choice_window = popup
+        self.choice_images.clear()
+        popup.title("Choose a TV program")
+        popup.geometry("560x560")
+        popup.minsize(420, 320)
+        popup.transient(self.window)
+        popup.protocol("WM_DELETE_WINDOW", self.close_program_choice_popup)
+
+        ttk.Label(
+            popup,
+            text="More than one program has this name. Click its picture:",
+            wraplength=520,
+        ).pack(anchor="w", padx=12, pady=12)
+
+        choice_area = ttk.Frame(popup)
+        choice_area.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        _, choices_frame = make_scrollable_frame(choice_area)
+
+        for program_choice in program_choices:
+            self.add_program_choice(
+                choices_frame,
+                popup,
+                program_choice,
+            )
+
+        popup.grab_set()
+        self.status_message.set("Choose a program in the new window.")
+
+    def add_program_choice(
+        self,
+        choices_frame: ttk.Frame,
+        popup: tk.Toplevel,
+        program_choice: ProgramChoice,
+    ) -> None:
+        """Add one clickable picture and its name and years to the picker."""
+        choice_row = ttk.Frame(choices_frame, padding=8)
+        choice_row.pack(fill="x", pady=4)
+        image_text = "No picture\navailable"
+        choice_image = None
+        if program_choice.program.image_data is not None:
+            try:
+                small_picture = make_small_picture(
+                    program_choice.program.image_data,
+                    (90, 125),
+                )
+                choice_image = ImageTk.PhotoImage(small_picture)
+                self.choice_images.append(choice_image)
+                image_text = ""
+            except (OSError, ValueError) as error:
+                log_application_error("preparing a program choice picture", error)
+
+        picture_label = ttk.Label(
+            choice_row,
+            image=choice_image,
+            text=image_text,
+            compound="center",
+            width=14,
+            anchor="center",
+            relief="groove",
+            cursor="hand2",
+        )
+        picture_label.pack(side="left", padx=(0, 12))
+        picture_label.bind(
+            "<Button-1>",
+            lambda event: self.choose_program(program_choice, popup, event),
+        )
+
+        text_frame = ttk.Frame(choice_row)
+        text_frame.pack(side="left", fill="x", expand=True)
+        ttk.Label(
+            text_frame,
+            text=program_choice.program.fields.get("name", "Unnamed program"),
+            font=("", 11, "bold"),
+            wraplength=370,
+        ).pack(anchor="w")
+        ttk.Label(
+            text_frame,
+            text=program_choice.years_ran,
+        ).pack(anchor="w", pady=(6, 0))
+
+    def choose_program(
+        self,
+        program_choice: ProgramChoice,
+        popup: tk.Toplevel,
+        event: tk.Event | None = None,
+    ) -> None:
+        """Close the picker and show the full details for the chosen show."""
+        del event
+        popup.destroy()
+        self.choice_window = None
+        self.choice_images.clear()
+        self.finish_with_program(program_choice.program)
+
+    def close_program_choice_popup(self) -> None:
+        """Close the picker without choosing and allow another search."""
+        if self.choice_window is not None:
+            self.choice_window.destroy()
+            self.choice_window = None
+        self.choice_images.clear()
+        self.search_button.configure(state="normal")
+        self.status_message.set("Choose a program to see its details.")
+
     def show_poster(self, picture_data: bytes | None) -> None:
         """Display the downloaded picture, small enough to fit in the window."""
         if picture_data is None:
@@ -205,8 +328,7 @@ class ProgramFinderWindow:
             return
 
         try:
-            picture = Image.open(BytesIO(picture_data))
-            picture.thumbnail((220, 300))
+            picture = make_small_picture(picture_data, (220, 300))
             self.poster_image = ImageTk.PhotoImage(picture)
         except (OSError, ValueError) as error:
             log_application_error("displaying a downloaded show picture", error)

@@ -7,7 +7,7 @@ from json import JSONDecodeError
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from api_activity_logging import (
     log_api_connection_error,
@@ -17,8 +17,28 @@ from api_activity_logging import (
     log_unreadable_api_reply,
     make_api_search_reference,
 )
-from config import AppSettings, NOT_AVAILABLE, SHOW_FIELD_OPTIONS, load_settings
-from helpers import make_english_value, remove_html_tags
+from config import (
+    AppSettings,
+    NOT_AVAILABLE,
+    SHOW_FIELD_OPTIONS,
+    check_settings,
+    load_settings,
+)
+from helpers import (
+    TVMAZE_API_PATH,
+    TVMAZE_API_HOST,
+    TVMAZE_SEARCH_PATH,
+    is_allowed_tvmaze_request_address,
+    is_allowed_tvmaze_image_address,
+    make_english_value,
+    open_trusted_tvmaze_request,
+    remove_html_tags,
+)
+
+MAX_PROGRAM_NAME_CHARACTERS = 200
+MAX_API_REPLY_SIZE_BYTES = 5_000_000
+MAX_PICTURE_REPLY_SIZE_BYTES = 10_000_000
+ALLOWED_PICTURE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class ProgramNotFoundError(Exception):
@@ -37,29 +57,153 @@ class ProgramDetails:
     image_data: bytes | None = None
 
 
+@dataclass
+class ProgramChoice:
+    """Keep one matching show and the years it was on television."""
+
+    program: ProgramDetails
+    years_ran: str
+
+
 def find_program_details(
     program_name: str,
     settings: AppSettings | None = None,
 ) -> ProgramDetails:
     """Search TVMaze and return details about the best matching program."""
+    settings, search_url, search_reference = prepare_program_search(
+        program_name,
+        settings,
+        use_matching_list=False,
+    )
+
+    program_data = request_program_reply(
+        search_url,
+        "program details",
+        settings,
+        search_reference,
+        dict,
+    )
+    if not isinstance(program_data, dict):
+        raise TVMazeError("TVMaze did not return details for the chosen program.")
+    program = make_program_details(program_data)
+    add_program_picture(program, program_data, settings, search_reference, search_url)
+    return program
+
+
+def find_program_choices(
+    program_name: str,
+    settings: AppSettings | None = None,
+) -> list[ProgramChoice]:
+    """Find same-name shows so a person can choose the right one."""
+    settings, search_url, search_reference = prepare_program_search(
+        program_name,
+        settings,
+        use_matching_list=True,
+    )
+    search_reply = request_program_reply(
+        search_url,
+        "matching program list",
+        settings,
+        search_reference,
+        list,
+    )
+    if not isinstance(search_reply, list):
+        raise TVMazeError("TVMaze did not return a list of matching programs.")
+
+    matching_programs = [
+        result["show"]
+        for result in search_reply
+        if isinstance(result, dict)
+        and isinstance(result.get("show"), dict)
+        and isinstance(result["show"].get("name"), str)
+    ]
+    if not matching_programs:
+        raise ProgramNotFoundError(
+            f'No TV program named "{program_name}" was found. '
+            f"Search reference: {search_reference}."
+        )
+
+    same_name_programs = [
+        show_data
+        for show_data in matching_programs
+        if show_data["name"].strip().casefold() == program_name.strip().casefold()
+    ]
+    chosen_programs = same_name_programs or [matching_programs[0]]
+
+    program_choices = []
+    for show_data in chosen_programs:
+        program = make_program_details(show_data)
+        add_program_picture(
+            program,
+            show_data,
+            settings,
+            search_reference,
+            search_url,
+            always_include_picture=True,
+        )
+        program_choices.append(
+            ProgramChoice(
+                program=program,
+                years_ran=make_program_years(
+                    show_data.get("premiered"),
+                    show_data.get("ended"),
+                ),
+            )
+        )
+
+    return program_choices
+
+
+def prepare_program_search(
+    program_name: str,
+    settings: AppSettings | None,
+    use_matching_list: bool,
+) -> tuple[AppSettings, str, str]:
+    """Check search choices and build a safe address before connecting."""
+    if not isinstance(program_name, str) or not program_name.strip():
+        raise TVMazeError("Enter a TV program name made up of letters or numbers.")
+    if len(program_name) > MAX_PROGRAM_NAME_CHARACTERS:
+        raise TVMazeError(
+            f"Keep the program name to {MAX_PROGRAM_NAME_CHARACTERS} characters or fewer."
+        )
+
     if settings is None:
         settings = load_settings()
+    try:
+        check_settings(settings)
+    except ValueError as error:
+        raise TVMazeError(f"The saved settings are not valid: {error}") from error
 
+    search_path = (
+        TVMAZE_SEARCH_PATH
+        if use_matching_list
+        else TVMAZE_API_PATH
+    )
     search_query = urlencode({"q": program_name})
-    search_url = f"{settings.tvmaze_api_url}?{search_query}"
+    search_url = f"https://{TVMAZE_API_HOST}{search_path}?{search_query}"
     search_reference = make_api_search_reference()
+    return settings, search_url, search_reference
 
+
+def request_program_reply(
+    search_url: str,
+    request_part_name: str,
+    settings: AppSettings,
+    search_reference: str,
+    expected_data_type: type,
+) -> dict | list:
+    """Get and check a TVMaze reply so every search handles errors alike."""
     try:
         response_body = request_tvmaze(
             search_url,
-            "program details",
+            request_part_name,
             settings.request_timeout_seconds,
             search_reference,
         )
     except HTTPError as error:
         if error.code == 404:
             raise ProgramNotFoundError(
-                f'No TV program named "{program_name}" was found. '
+                "TVMaze could not find a matching TV program. "
                 f"Search reference: {search_reference}."
             ) from error
         raise TVMazeError(
@@ -77,7 +221,7 @@ def find_program_details(
     except (JSONDecodeError, UnicodeDecodeError) as error:
         log_unreadable_api_reply(
             search_reference,
-            "program details",
+            request_part_name,
             search_url,
             f"The reply was not valid readable JSON: {error}",
         )
@@ -86,35 +230,84 @@ def find_program_details(
             f"Search reference: {search_reference}."
         ) from error
 
-    if not isinstance(program_data, dict):
+    if not isinstance(program_data, expected_data_type):
         log_unreadable_api_reply(
             search_reference,
-            "program details",
+            request_part_name,
             search_url,
-            "The reply was not a program details object.",
+            "The reply did not have the expected kind of program information.",
         )
         raise TVMazeError(
             "TVMaze sent information in an unexpected format. "
             f"Search reference: {search_reference}."
         )
 
-    program = make_program_details(program_data)
-    if "image" in settings.selected_show_fields:
-        picture_url = find_picture_url(program_data.get("image"))
-        if picture_url is None:
-            program.fields["image"] = "No image is available for this show."
-        else:
-            try:
-                program.image_data = request_tvmaze(
-                    picture_url,
-                    "show picture",
-                    settings.request_timeout_seconds,
-                    search_reference,
-                )
-            except (HTTPError, URLError, TimeoutError, OSError):
-                program.fields["image"] = "The show image could not be downloaded."
+    return program_data
 
-    return program
+
+def add_program_picture(
+    program: ProgramDetails,
+    program_data: dict[str, object],
+    settings: AppSettings,
+    search_reference: str,
+    search_url: str,
+    always_include_picture: bool = False,
+) -> None:
+    """Download a trusted show picture when pictures are part of the results."""
+    if not always_include_picture and "image" not in settings.selected_show_fields:
+        return
+
+    picture_url = find_picture_url(program_data.get("image"))
+    if picture_url is None:
+        image_value = program_data.get("image")
+        if isinstance(image_value, dict) and any(image_value.values()):
+            log_unreadable_api_reply(
+                search_reference,
+                "show picture",
+                search_url,
+                "TVMaze returned a picture address that is not from its "
+                "approved picture website.",
+            )
+            program.fields["image"] = (
+                "The show picture address was not from the TVMaze picture website."
+            )
+        else:
+            program.fields["image"] = "No image is available for this show."
+        return
+
+    try:
+        program.image_data = request_tvmaze(
+            picture_url,
+            "show picture",
+            settings.request_timeout_seconds,
+            search_reference,
+        )
+    except (HTTPError, URLError, TimeoutError, OSError, TVMazeError):
+        program.fields["image"] = "The show image could not be downloaded."
+
+
+def make_program_years(premiered: object, ended: object) -> str:
+    """Describe the start and end years in a short, familiar way."""
+    first_year = get_program_year(premiered)
+    last_year = get_program_year(ended)
+
+    if first_year and last_year:
+        return f"{first_year} to {last_year}"
+    if first_year:
+        return f"{first_year} to present"
+    if last_year:
+        return f"Start year unknown to {last_year}"
+    return "Years not available"
+
+
+def get_program_year(date_value: object) -> str | None:
+    """Read a four-digit year only when TVMaze gives a real calendar date."""
+    if not isinstance(date_value, str):
+        return None
+    try:
+        return str(date.fromisoformat(date_value).year)
+    except ValueError:
+        return None
 
 
 def request_tvmaze(
@@ -124,6 +317,11 @@ def request_tvmaze(
     search_reference: str,
 ) -> bytes:
     """Send one GET request and record the API connection details."""
+    if not is_allowed_tvmaze_request_address(request_url):
+        raise TVMazeError(
+            "The program stopped an address that is not an approved TVMaze website."
+        )
+
     request_started_at = log_api_request_start(
         search_reference,
         request_part_name,
@@ -139,8 +337,51 @@ def request_tvmaze(
     )
 
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            response_body = response.read()
+        with open_trusted_tvmaze_request(request, timeout_seconds) as response:
+            content_type = response.headers.get("content-type", "")
+            response_type = content_type.split(";", maxsplit=1)[0].strip().lower()
+            correct_response_type = (
+                response_type in ALLOWED_PICTURE_CONTENT_TYPES
+                if request_part_name == "show picture"
+                else response_type == "application/json"
+            )
+            if not correct_response_type:
+                problem = (
+                    f"The server returned an unexpected type of information: "
+                    f"{content_type or 'no content type was provided'}."
+                )
+                log_unreadable_api_reply(
+                    search_reference,
+                    request_part_name,
+                    request_url,
+                    problem,
+                )
+                raise TVMazeError(
+                    "TVMaze sent information in an unexpected format. "
+                    f"Search reference: {search_reference}."
+                )
+
+            expected_size_limit = (
+                MAX_PICTURE_REPLY_SIZE_BYTES
+                if request_part_name == "show picture"
+                else MAX_API_REPLY_SIZE_BYTES
+            )
+            response_body = response.read(expected_size_limit + 1)
+            if len(response_body) > expected_size_limit:
+                problem = (
+                    f"The reply was larger than the allowed "
+                    f"{expected_size_limit} bytes."
+                )
+                log_unreadable_api_reply(
+                    search_reference,
+                    request_part_name,
+                    request_url,
+                    problem,
+                )
+                raise TVMazeError(
+                    "TVMaze sent a reply that was too large to use safely. "
+                    f"Search reference: {search_reference}."
+                )
             log_successful_api_reply(
                 search_reference,
                 request_part_name,
@@ -241,11 +482,15 @@ def find_picture_url(image_value: object) -> str | None:
         return None
 
     medium_image = image_value.get("medium")
-    if isinstance(medium_image, str) and medium_image.startswith("https://"):
+    if isinstance(medium_image, str) and is_allowed_tvmaze_image_address(
+        medium_image
+    ):
         return medium_image
 
     original_image = image_value.get("original")
-    if isinstance(original_image, str) and original_image.startswith("https://"):
+    if isinstance(original_image, str) and is_allowed_tvmaze_image_address(
+        original_image
+    ):
         return original_image
 
     return None

@@ -5,10 +5,30 @@ from collections.abc import Mapping
 from html.parser import HTMLParser
 import logging
 import os
+from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image
+from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.request import (
+    HTTPRedirectHandler,
+    Request,
+    build_opener,
+)
 
-from config import NOT_AVAILABLE
+
+NOT_AVAILABLE = "Not available"
+TVMAZE_API_HOST = "api.tvmaze.com"
+TVMAZE_IMAGE_HOST = "static.tvmaze.com"
+TVMAZE_API_PATH = "/singlesearch/shows"
+TVMAZE_SEARCH_PATH = "/search/shows"
+TVMAZE_IMAGE_PATH = "/uploads/images/"
+ALLOWED_IMAGE_FILE_ENDINGS = (".jpg", ".jpeg", ".png", ".webp")
+MAX_ALLOWED_SEARCH_NAME_LENGTH = 200
+MAX_ALLOWED_SEARCH_QUERY_LENGTH = (MAX_ALLOWED_SEARCH_NAME_LENGTH * 12) + 2
+MAX_ALLOWED_REQUEST_TIMEOUT_SECONDS = 120
 
 
 FIELD_LABELS = {
@@ -131,6 +151,196 @@ def make_one_line(message: str, character_limit: int = 1000) -> str:
     return " ".join(message.split())[:character_limit]
 
 
+def make_small_picture(
+    picture_data: bytes,
+    maximum_size: tuple[int, int],
+) -> Image.Image:
+    """Make a smaller copy of a picture so it fits neatly in a window."""
+    with Image.open(BytesIO(picture_data)) as original_picture:
+        original_picture.thumbnail(maximum_size)
+        return original_picture.copy()
+
+
+def make_scrollable_frame(
+    parent: tk.Misc,
+    height: int | None = None,
+) -> tuple[tk.Canvas, ttk.Frame]:
+    """Build one shared scrollable list so every screen scrolls the same way."""
+    canvas_options = {"highlightthickness": 0}
+    if height is not None:
+        canvas_options["height"] = height
+    canvas = tk.Canvas(parent, **canvas_options)
+    scroll_bar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll_bar.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    scroll_bar.pack(side="right", fill="y")
+
+    contents = ttk.Frame(canvas)
+    canvas_window = canvas.create_window((0, 0), window=contents, anchor="nw")
+    contents.bind(
+        "<Configure>",
+        lambda event: update_scrollable_frame_area(canvas, event),
+    )
+    canvas.bind(
+        "<Configure>",
+        lambda event: fit_scrollable_frame_width(canvas, canvas_window, event),
+    )
+    return canvas, contents
+
+
+def update_scrollable_frame_area(canvas: tk.Canvas, event: tk.Event) -> None:
+    """Update the scroll range so a person can reach every row."""
+    del event
+    canvas.configure(scrollregion=canvas.bbox("all"))
+
+
+def fit_scrollable_frame_width(
+    canvas: tk.Canvas,
+    canvas_window: int,
+    event: tk.Event,
+) -> None:
+    """Stretch the list to the visible width so labels do not get cut off."""
+    canvas.itemconfigure(canvas_window, width=event.width)
+
+
+def is_allowed_tvmaze_api_address(address: str) -> bool:
+    """Check that an address points to TVMaze's official show search."""
+    return is_trusted_tvmaze_address(
+        address,
+        TVMAZE_API_HOST,
+        TVMAZE_API_PATH,
+    )
+
+
+def is_allowed_tvmaze_image_address(address: str) -> bool:
+    """Check that an address points to an image on TVMaze's picture website."""
+    if not is_trusted_tvmaze_address(
+        address,
+        TVMAZE_IMAGE_HOST,
+        TVMAZE_IMAGE_PATH,
+        path_must_start_with=True,
+    ):
+        return False
+
+    return urlsplit(address).path.lower().endswith(ALLOWED_IMAGE_FILE_ENDINGS)
+
+
+def is_allowed_tvmaze_request_address(address: str) -> bool:
+    """Allow only the official TVMaze search and picture addresses."""
+    if is_allowed_tvmaze_image_address(address):
+        return True
+
+    if not isinstance(address, str):
+        return False
+
+    try:
+        address_parts = urlsplit(address)
+        allowed_api_path = address_parts.path in {
+            TVMAZE_API_PATH,
+            TVMAZE_SEARCH_PATH,
+        }
+        if not allowed_api_path or not is_trusted_tvmaze_address(
+            address,
+            TVMAZE_API_HOST,
+            address_parts.path,
+            query_is_allowed=True,
+        ):
+            return False
+
+        query_text = address_parts.query
+        if len(query_text) > MAX_ALLOWED_SEARCH_QUERY_LENGTH:
+            return False
+        query_values = parse_qs(query_text, strict_parsing=True)
+    except ValueError:
+        return False
+
+    return (
+        set(query_values) == {"q"}
+        and len(query_values["q"]) == 1
+        and bool(query_values["q"][0])
+        and len(query_values["q"][0]) <= MAX_ALLOWED_SEARCH_NAME_LENGTH
+    )
+
+
+def is_trusted_tvmaze_address(
+    address: str,
+    trusted_host: str,
+    trusted_path: str,
+    path_must_start_with: bool = False,
+    query_is_allowed: bool = False,
+) -> bool:
+    """Check the secure website, exact server, and allowed part of an address."""
+    if not isinstance(address, str) or not address or any(
+        ord(character) <= 32 or character == "\\"
+        for character in address
+    ):
+        return False
+    if "#" in address or (not query_is_allowed and "?" in address):
+        return False
+
+    try:
+        address_parts = urlsplit(address)
+        address_host = address_parts.hostname
+        address_port = address_parts.port
+    except ValueError:
+        return False
+
+    if (
+        address_parts.scheme != "https"
+        or address_host != trusted_host
+        or address_port is not None
+        or address_parts.username is not None
+        or address_parts.password is not None
+        or (address_parts.query and not query_is_allowed)
+        or address_parts.fragment
+    ):
+        return False
+
+    if path_must_start_with:
+        decoded_path = unquote(address_parts.path)
+        if "%" in decoded_path or "\\" in decoded_path:
+            return False
+        path_parts = decoded_path.lower().split("/")
+        if "." in path_parts or ".." in path_parts:
+            return False
+        return decoded_path.startswith(trusted_path)
+    return address_parts.path == trusted_path
+
+
+class DoNotFollowWebsiteRedirects(HTTPRedirectHandler):
+    """Stop a trusted website from sending requests to a different address."""
+
+    def redirect_request(
+        self,
+        request: Request,
+        response: object,
+        status_code: int,
+        reason: str,
+        response_headers: object,
+        new_address: str,
+    ) -> None:
+        """Refuse every redirect so a website cannot choose another server."""
+        del request, response, status_code, reason, response_headers, new_address
+        return None
+
+
+def open_trusted_tvmaze_request(request: Request, timeout_seconds: int):
+    """Open a checked TVMaze address without following any redirects."""
+    if not is_allowed_tvmaze_request_address(request.full_url):
+        raise ValueError("The address is not an approved TVMaze website address.")
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, int)
+        or not 1 <= timeout_seconds <= MAX_ALLOWED_REQUEST_TIMEOUT_SECONDS
+    ):
+        raise ValueError(
+            "The website wait limit must be a whole number from 1 to 120 seconds."
+        )
+
+    safe_opener = build_opener(DoNotFollowWebsiteRedirects())
+    return safe_opener.open(request, timeout=timeout_seconds)
+
+
 def open_file_in_default_program(file_path: str | Path) -> None:
     """Open an existing file with its usual program in Windows."""
     chosen_file = Path(file_path).expanduser().resolve()
@@ -177,3 +387,16 @@ def close_logger_handlers(logger: logging.Logger) -> None:
     for file_handler in logger.handlers[:]:
         logger.removeHandler(file_handler)
         file_handler.close()
+
+
+def stop_rotating_file_log(logger_name: str) -> None:
+    """Close one named log so both app logs clean up in the same way."""
+    close_logger_handlers(logging.getLogger(logger_name))
+
+
+def read_log_file(logger_name: str, log_file_path: str | Path) -> str:
+    """Flush and read one log so its latest note is ready for checking."""
+    logger = logging.getLogger(logger_name)
+    for file_handler in logger.handlers:
+        file_handler.flush()
+    return Path(log_file_path).read_text(encoding="utf-8")

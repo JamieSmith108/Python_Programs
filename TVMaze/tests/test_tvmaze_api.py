@@ -1,13 +1,21 @@
 """Check that TVMaze show information is read correctly."""
 
 import unittest
+import json
+from unittest.mock import patch
 
+from config import AppSettings
 from presentation import format_program_details
 from tvmaze_api import (
+    MAX_PROGRAM_NAME_CHARACTERS,
+    TVMazeError,
+    find_program_choices,
+    find_program_details,
     find_picture_url,
     format_program_field,
     make_program_details,
     make_english_time,
+    make_program_years,
 )
 
 
@@ -98,12 +106,160 @@ class ProgramDetailsTests(unittest.TestCase):
         """The program should choose the smaller poster when one is available."""
         picture_url = find_picture_url(
             {
-                "medium": "https://images.example/poster-medium.jpg",
-                "original": "https://images.example/poster-original.jpg",
+                "medium": (
+                    "https://static.tvmaze.com/uploads/images/"
+                    "medium_portrait/0/1.jpg"
+                ),
+                "original": (
+                    "https://static.tvmaze.com/uploads/images/"
+                    "original_untouched/0/1.jpg"
+                ),
             }
         )
 
-        self.assertEqual(picture_url, "https://images.example/poster-medium.jpg")
+        self.assertEqual(
+            picture_url,
+            "https://static.tvmaze.com/uploads/images/medium_portrait/0/1.jpg",
+        )
+
+    def test_picture_address_from_an_untrusted_website_is_rejected(self) -> None:
+        """A show picture must not come from a website other than TVMaze's."""
+        unsafe_picture_addresses = (
+            "https://images.example/poster.jpg",
+            "https://static.tvmaze.com.evil.example/uploads/images/poster.jpg",
+            "http://static.tvmaze.com/uploads/images/poster.jpg",
+            "https://static.tvmaze.com/other-place/poster.jpg",
+            "https://static.tvmaze.com/uploads/images/poster.svg",
+            "https://static.tvmaze.com/uploads/images/poster.jpg?next=evil",
+        )
+
+        for unsafe_address in unsafe_picture_addresses:
+            with self.subTest(address=unsafe_address):
+                self.assertIsNone(
+                    find_picture_url(
+                        {"medium": unsafe_address, "original": unsafe_address}
+                    )
+                )
+
+    def test_blank_program_name_is_rejected_before_a_web_request(self) -> None:
+        """An empty program name must never be sent to a website."""
+        with patch("tvmaze_api.open_trusted_tvmaze_request") as open_web_request:
+            with self.assertRaisesRegex(TVMazeError, "Enter a TV program name"):
+                find_program_details("   ")
+
+        open_web_request.assert_not_called()
+
+    def test_very_long_program_name_is_rejected_before_a_web_request(self) -> None:
+        """A name longer than the safe limit must not be sent to the API."""
+        too_long_name = "A" * (MAX_PROGRAM_NAME_CHARACTERS + 1)
+
+        with patch("tvmaze_api.open_trusted_tvmaze_request") as open_web_request:
+            with self.assertRaisesRegex(TVMazeError, "characters or fewer"):
+                find_program_details(too_long_name)
+
+        open_web_request.assert_not_called()
+
+    def test_unapproved_settings_are_rejected_before_a_web_request(self) -> None:
+        """A hand-built setting cannot bypass the official website check."""
+        unsafe_settings = AppSettings(
+            tvmaze_api_url="https://evil.example/collect",
+        )
+
+        with patch("tvmaze_api.open_trusted_tvmaze_request") as open_web_request:
+            with self.assertRaisesRegex(TVMazeError, "official secure TVMaze"):
+                find_program_details("Doctor Who", unsafe_settings)
+
+        open_web_request.assert_not_called()
+
+    def test_untrusted_picture_address_is_never_requested(self) -> None:
+        """A fake picture website in an API reply must never be contacted."""
+        api_reply = json.dumps(
+            {
+                "name": "Example Show",
+                "image": {
+                    "medium": "https://evil.example/collect.jpg",
+                    "original": "https://evil.example/collect.jpg",
+                },
+            }
+        ).encode("utf-8")
+        settings = AppSettings(selected_show_fields=("image",))
+
+        with patch("tvmaze_api.request_tvmaze", return_value=api_reply) as request:
+            program = find_program_details("Example Show", settings)
+
+        request.assert_called_once()
+        self.assertIn("not from the TVMaze picture website", program.fields["image"])
+
+    def test_same_name_results_include_years_and_picture_data(self) -> None:
+        """Duplicate exact titles should become complete choices for the window."""
+        search_reply = json.dumps(
+            [
+                {
+                    "show": {
+                        "name": "Shared Show",
+                        "premiered": "1990-01-01",
+                        "ended": "1992-12-31",
+                        "image": {
+                            "medium": (
+                                "https://static.tvmaze.com/uploads/images/"
+                                "medium_portrait/1/1.jpg"
+                            )
+                        },
+                    }
+                },
+                {
+                    "show": {
+                        "name": " shared show ",
+                        "premiered": "2010-01-01",
+                        "ended": None,
+                        "image": {
+                            "medium": (
+                                "https://static.tvmaze.com/uploads/images/"
+                                "medium_portrait/2/2.jpg"
+                            )
+                        },
+                    }
+                },
+                {"show": {"name": "Similar, but different"}},
+            ]
+        ).encode("utf-8")
+        with patch(
+            "tvmaze_api.request_tvmaze",
+            side_effect=[search_reply, b"first picture", b"second picture"],
+        ) as request:
+            choices = find_program_choices("Shared Show")
+
+        self.assertEqual(len(choices), 2)
+        self.assertEqual(choices[0].program.fields["name"], "Shared Show")
+        self.assertEqual(choices[0].years_ran, "1990 to 1992")
+        self.assertEqual(choices[0].program.image_data, b"first picture")
+        self.assertEqual(choices[1].years_ran, "2010 to present")
+        self.assertEqual(choices[1].program.image_data, b"second picture")
+        self.assertEqual(request.call_count, 3)
+        self.assertIn("/search/shows?q=Shared+Show", request.call_args_list[0].args[0])
+
+    def test_one_exact_name_result_does_not_add_similar_title(self) -> None:
+        """Similar titles should not appear as duplicate-name choices."""
+        search_reply = json.dumps(
+            [
+                {"show": {"name": "A Shared Show"}},
+                {"show": {"name": "Shared Show", "premiered": "2000-01-01"}},
+            ]
+        ).encode("utf-8")
+        with patch("tvmaze_api.request_tvmaze", return_value=search_reply):
+            choices = find_program_choices("Shared Show")
+
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0].program.fields["name"], "Shared Show")
+        self.assertEqual(choices[0].years_ran, "2000 to present")
+
+    def test_years_are_clear_when_tvmaze_dates_are_missing(self) -> None:
+        """Missing or invalid dates should have a clear, honest label."""
+        self.assertEqual(
+            make_program_years(None, "2015-01-01"),
+            "Start year unknown to 2015",
+        )
+        self.assertEqual(make_program_years("not a date", None), "Years not available")
 
     def test_schedule_uses_a_familiar_clock_time(self) -> None:
         """A schedule time should use the common twelve-hour clock."""

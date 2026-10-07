@@ -5,6 +5,11 @@ from dataclasses import asdict, dataclass
 import os
 from pathlib import Path
 
+from helpers import (
+    MAX_ALLOWED_REQUEST_TIMEOUT_SECONDS,
+    NOT_AVAILABLE as NOT_AVAILABLE,
+    is_allowed_tvmaze_api_address,
+)
 
 # The settings file lives beside this program and is created when settings are saved.
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
@@ -175,14 +180,25 @@ def check_settings(settings: AppSettings) -> None:
             raise ValueError(f"{setting_label} must be a whole number.")
         if setting_value < 1:
             raise ValueError(f"{setting_label} must be greater than zero.")
+        if (
+            setting_label == "Request timeout"
+            and setting_value > MAX_ALLOWED_REQUEST_TIMEOUT_SECONDS
+        ):
+            raise ValueError(
+                "Request timeout cannot be longer than "
+                f"{MAX_ALLOWED_REQUEST_TIMEOUT_SECONDS} seconds."
+            )
 
     if settings.window_width < settings.minimum_window_width:
         raise ValueError("Window width cannot be less than its minimum width.")
     if settings.window_height < settings.minimum_window_height:
         raise ValueError("Window height cannot be less than its minimum height.")
 
-    if not settings.tvmaze_api_url.startswith(("https://", "http://")):
-        raise ValueError("The TVMaze API address must start with http:// or https://.")
+    if not is_allowed_tvmaze_api_address(settings.tvmaze_api_url):
+        raise ValueError(
+            "Use the official secure TVMaze show-search address: "
+            "https://api.tvmaze.com/singlesearch/shows"
+        )
 
     if not isinstance(settings.selected_show_fields, tuple):
         raise ValueError("The selected show fields must be a list of field names.")
@@ -210,9 +226,6 @@ def check_log_file_location(log_file_path: str, log_purpose: str) -> None:
 
     raise ValueError(f"Save the {log_purpose} log outside the program folder.")
 
-
-# Text shown when TVMaze does not provide a value
-NOT_AVAILABLE = "Not available"
 
 # Labels shown in the program
 SEARCH_LABEL = "Enter a TV program name:"

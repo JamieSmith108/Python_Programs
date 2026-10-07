@@ -12,7 +12,7 @@ from config import (
     check_settings,
     save_settings,
 )
-from helpers import open_file_in_default_program
+from helpers import make_scrollable_frame, open_file_in_default_program
 
 
 class SettingsWindow:
@@ -172,26 +172,7 @@ class SettingsWindow:
         form.columnconfigure(1, weight=1)
         form.rowconfigure(first_row + 1, weight=1)
 
-        canvas = tk.Canvas(list_frame, height=190, highlightthickness=0)
-        scroll_bar = ttk.Scrollbar(
-            list_frame,
-            orient="vertical",
-            command=canvas.yview,
-        )
-        canvas.configure(yscrollcommand=scroll_bar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll_bar.pack(side="right", fill="y")
-
-        checkboxes = ttk.Frame(canvas)
-        canvas_window = canvas.create_window((0, 0), window=checkboxes, anchor="nw")
-        checkboxes.bind(
-            "<Configure>",
-            lambda event: canvas.configure(scrollregion=event.widget.bbox("all")),
-        )
-        canvas.bind(
-            "<Configure>",
-            lambda event: canvas.itemconfigure(canvas_window, width=event.width),
-        )
+        _, checkboxes = make_scrollable_frame(list_frame, height=190)
 
         for field_number, (field_name, field_label) in enumerate(SHOW_FIELD_OPTIONS):
             checked = tk.BooleanVar(
