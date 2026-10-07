@@ -86,16 +86,38 @@ settings and the list of available TVMaze fields are in `config.py`.
 - `settings_window.py` builds the separate Settings window.
 - `tvmaze_api.py` asks TVMaze for a show and makes its answer readable.
 - `presentation.py` puts the chosen show details into a clear list.
-- `helpers.py` contains small text-cleaning and label-making functions.
+- `helpers.py` contains shared text-cleaning, label-making, and logger-cleanup
+  functions used by other files.
+- `activity_log.py` records readable notes about API connections.
 - `config.py` holds default settings and the list of available show details.
 - `settings.json` stores the choices you saved in the Settings window.
+- `activity.log` stores recent API connection notes.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
+
+## Read the activity log
+
+The program writes connection notes to `activity.log` in the same folder as
+`main.py`. It records when the program contacts TVMaze, what reply code the
+server sends, how long the reply takes, how many bytes it contains, and
+helpful server details such as request or trace IDs. If a connection fails,
+the log records the kind of problem and its explanation.
+
+Each search has a unique correlation ID. The same ID is used for the show
+details and picture requests, so you can tell which notes belong together.
+The log uses plain-English messages and rotates old files when the log grows
+too large. Up to three older log files are kept.
+
+For privacy, the log keeps only a short list of useful response headers. It
+does not save cookies, authorization details, or the contents of TVMaze
+responses. A search address includes the name typed into the search box.
 
 ## If something goes wrong
 
 - **The program cannot find a show:** Check the spelling and try again.
 - **The search cannot connect:** Check your internet connection and try again.
+- **The activity log cannot be created:** Check that the program folder is
+  writable and that no other program is blocking `activity.log`.
 - **Pictures do not appear:** Install the requirements with
   `python -m pip install -r requirements.txt`, then restart the program.
 - **Settings will not save:** Check that all number boxes contain whole

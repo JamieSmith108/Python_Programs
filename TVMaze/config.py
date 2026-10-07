@@ -7,6 +7,7 @@ from pathlib import Path
 
 # The settings file lives beside this program and is created when settings are saved.
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
+ACTIVITY_LOG_FILE = Path(__file__).with_name("activity.log")
 
 # Every top-level show field returned by the TVMaze show endpoint
 SHOW_FIELD_OPTIONS = (

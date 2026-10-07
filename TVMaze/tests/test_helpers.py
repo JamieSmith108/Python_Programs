@@ -1,10 +1,13 @@
 """Check that the shared helper functions handle common values."""
 
 import unittest
+import logging
 
 from helpers import (
+    close_logger_handlers,
     make_english_label,
     make_english_value,
+    make_one_line,
     read_text,
     remove_html_tags,
 )
@@ -46,6 +49,19 @@ class HelperFunctionTests(unittest.TestCase):
             "BBC One\nCountry: United Kingdom\nCode: GB",
         )
         self.assertNotIn("{", readable_value)
+
+    def test_make_one_line_removes_line_breaks_and_limits_length(self) -> None:
+        """A long message should fit on one short line."""
+        self.assertEqual(make_one_line("  first\n second  ", 10), "first seco")
+
+    def test_close_logger_handlers_removes_open_handlers(self) -> None:
+        """A closed logger should no longer keep its handlers."""
+        logger = logging.getLogger("helper_test_logger")
+        logger.addHandler(logging.NullHandler())
+
+        close_logger_handlers(logger)
+
+        self.assertEqual(logger.handlers, [])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
+import logging
 
 from config import NOT_AVAILABLE
 
@@ -86,7 +87,7 @@ def make_english_label(field_name: str) -> str:
     return " ".join(word.capitalize() for word in words.split())
 
 
-def make_english_value(value: object, field_name: str = "") -> str:
+def make_english_value(value: object) -> str:
     """Turn nested API values into readable text instead of JSON."""
     if value is None:
         return NOT_AVAILABLE
@@ -100,7 +101,7 @@ def make_english_value(value: object, field_name: str = "") -> str:
             if nested_value is None:
                 continue
 
-            readable_value = make_english_value(nested_value, str(nested_name))
+            readable_value = make_english_value(nested_value)
             if nested_name == "name" and isinstance(nested_value, str):
                 readable_parts.insert(0, readable_value)
             else:
@@ -112,7 +113,7 @@ def make_english_value(value: object, field_name: str = "") -> str:
 
     if isinstance(value, list):
         readable_items = [
-            make_english_value(item, field_name)
+            make_english_value(item)
             for item in value
             if item is not None
         ]
@@ -120,3 +121,15 @@ def make_english_value(value: object, field_name: str = "") -> str:
         return separator.join(readable_items) if readable_items else NOT_AVAILABLE
 
     return read_text(value)
+
+
+def make_one_line(message: str, character_limit: int = 1000) -> str:
+    """Remove extra spaces and line breaks from a message."""
+    return " ".join(message.split())[:character_limit]
+
+
+def close_logger_handlers(activity_logger: logging.Logger) -> None:
+    """Close every open file used by a logger."""
+    for file_handler in activity_logger.handlers[:]:
+        activity_logger.removeHandler(file_handler)
+        file_handler.close()

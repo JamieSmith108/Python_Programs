@@ -7,6 +7,7 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
+from activity_log import start_activity_log, stop_activity_log
 from config import (
     AppSettings,
     EXIT_BUTTON_TEXT,
@@ -208,6 +209,17 @@ def start_program() -> None:
     """Load saved settings and open the TVMaze program window."""
     window = tk.Tk()
     try:
+        start_activity_log()
+    except OSError as error:
+        messagebox.showerror(
+            "Activity log could not be started",
+            f"The program could not create its activity log: {error}",
+            parent=window,
+        )
+        window.destroy()
+        return
+
+    try:
         settings = load_settings()
     except SettingsError as error:
         messagebox.showerror("Settings could not be loaded", str(error), parent=window)
@@ -216,3 +228,4 @@ def start_program() -> None:
 
     ProgramFinderWindow(window, settings)
     window.mainloop()
+    stop_activity_log()

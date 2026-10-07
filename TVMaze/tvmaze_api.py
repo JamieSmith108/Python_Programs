@@ -4,10 +4,19 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from json import JSONDecodeError
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
+from activity_log import (
+    make_correlation_id,
+    note_connection_problem,
+    note_http_problem,
+    note_request_started,
+    note_response_received,
+    note_unreadable_reply,
+)
 from config import AppSettings, NOT_AVAILABLE, SHOW_FIELD_OPTIONS, load_settings
 from helpers import make_english_value, remove_html_tags
 
@@ -38,47 +47,130 @@ def find_program_details(
 
     search_query = urlencode({"q": program_name})
     search_url = f"{settings.tvmaze_api_url}?{search_query}"
+    correlation_id = make_correlation_id()
 
     try:
-        with urlopen(
+        response_body = request_tvmaze(
             search_url,
-            timeout=settings.request_timeout_seconds,
-        ) as response:
-            program_data = json.loads(response.read().decode("utf-8"))
+            "program details",
+            settings.request_timeout_seconds,
+            correlation_id,
+        )
     except HTTPError as error:
         if error.code == 404:
             raise ProgramNotFoundError(
-                f'No TV program named "{program_name}" was found.'
+                f'No TV program named "{program_name}" was found. '
+                f"Search reference: {correlation_id}."
             ) from error
-        raise TVMazeError(f"TVMaze returned an error (HTTP {error.code}).") from error
-    except (URLError, TimeoutError) as error:
+        raise TVMazeError(
+            f"TVMaze returned an error (HTTP {error.code}). "
+            f"Search reference: {correlation_id}."
+        ) from error
+    except (URLError, TimeoutError, OSError) as error:
         raise TVMazeError(
             "Could not connect to TVMaze. Check your internet connection and try again."
+            f" Search reference: {correlation_id}."
         ) from error
+
+    try:
+        program_data = json.loads(response_body.decode("utf-8"))
     except (JSONDecodeError, UnicodeDecodeError) as error:
-        raise TVMazeError("TVMaze sent information that could not be read.") from error
+        note_unreadable_reply(
+            correlation_id,
+            "program details",
+            search_url,
+            f"The reply was not valid readable JSON: {error}",
+        )
+        raise TVMazeError(
+            "TVMaze sent information that could not be read. "
+            f"Search reference: {correlation_id}."
+        ) from error
 
     if not isinstance(program_data, dict):
-        raise TVMazeError("TVMaze sent information in an unexpected format.")
+        note_unreadable_reply(
+            correlation_id,
+            "program details",
+            search_url,
+            "The reply was not a program details object.",
+        )
+        raise TVMazeError(
+            "TVMaze sent information in an unexpected format. "
+            f"Search reference: {correlation_id}."
+        )
 
     program = make_program_details(program_data)
     if "image" in settings.selected_show_fields:
         picture_url = find_picture_url(program_data.get("image"))
-        if picture_url is not None:
-            try:
-                with urlopen(
-                    picture_url,
-                    timeout=settings.request_timeout_seconds,
-                ) as response:
-                    program.image_data = response.read()
-            except (HTTPError, URLError, TimeoutError, OSError):
-                program.fields["image"] = (
-                    "The show image could not be downloaded."
-                )
-        else:
+        if picture_url is None:
             program.fields["image"] = "No image is available for this show."
+        else:
+            try:
+                program.image_data = request_tvmaze(
+                    picture_url,
+                    "show picture",
+                    settings.request_timeout_seconds,
+                    correlation_id,
+                )
+            except (HTTPError, URLError, TimeoutError, OSError):
+                program.fields["image"] = "The show image could not be downloaded."
 
     return program
+
+
+def request_tvmaze(
+    request_url: str,
+    request_name: str,
+    timeout_seconds: int,
+    correlation_id: str,
+) -> bytes:
+    """Send one GET request and write down what happened."""
+    request_timer = note_request_started(
+        correlation_id,
+        request_name,
+        request_url,
+        timeout_seconds,
+    )
+    request = Request(
+        request_url,
+        headers={
+            "User-Agent": "TVMaze-Show-Finder/1.0",
+            "X-Correlation-ID": correlation_id,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            response_body = response.read()
+            note_response_received(
+                correlation_id,
+                request_name,
+                request_url,
+                response.status,
+                response.headers,
+                time.monotonic() - request_timer,
+                len(response_body),
+            )
+            return response_body
+    except HTTPError as error:
+        note_http_problem(
+            correlation_id,
+            request_name,
+            request_url,
+            error.code,
+            error.headers or {},
+            time.monotonic() - request_timer,
+            error.reason,
+        )
+        raise
+    except (URLError, TimeoutError, OSError) as error:
+        note_connection_problem(
+            correlation_id,
+            request_name,
+            request_url,
+            time.monotonic() - request_timer,
+            error,
+        )
+        raise
 
 
 def make_program_details(program_data: dict[str, object]) -> ProgramDetails:
@@ -122,17 +214,17 @@ def format_program_field(field_name: str, value: object) -> str:
             show_date = date.fromisoformat(value)
         except ValueError:
             return value
-        return show_date.strftime("%B %d, %Y").replace(" 0", " ")
+        return f"{show_date:%B} {show_date.day}, {show_date.year}"
 
     if field_name in {"runtime", "averageRuntime"} and isinstance(value, int):
         return f"{value} minutes"
 
     if field_name == "updated" and isinstance(value, (int, float)):
         updated_time = datetime.fromtimestamp(value, tz=timezone.utc)
-        return (
-            updated_time.strftime("%B %d, %Y at %I:%M %p UTC")
-            .replace(" 0", " ")
+        readable_date = (
+            f"{updated_time:%B} {updated_time.day}, {updated_time.year}"
         )
+        return f"{readable_date} at {updated_time:%I:%M %p UTC}"
 
     if field_name == "summary" and isinstance(value, str):
         return remove_html_tags(value) or NOT_AVAILABLE
@@ -140,7 +232,7 @@ def format_program_field(field_name: str, value: object) -> str:
     if field_name == "image":
         return "The show image is displayed above."
 
-    return make_english_value(value, field_name)
+    return make_english_value(value)
 
 
 def find_picture_url(image_value: object) -> str | None:
@@ -162,8 +254,8 @@ def find_picture_url(image_value: object) -> str | None:
 def make_english_time(time_text: str) -> str:
     """Change a 24-hour clock time into a familiar 12-hour clock time."""
     try:
-        show_time = datetime.strptime(time_text.strip(), "%H:%M")
+        parsed_time = datetime.strptime(time_text.strip(), "%H:%M")
     except ValueError:
         return time_text.strip()
 
-    return show_time.strftime("%I:%M %p").lstrip("0")
+    return parsed_time.strftime("%I:%M %p").lstrip("0")
