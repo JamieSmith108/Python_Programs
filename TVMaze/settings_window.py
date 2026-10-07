@@ -62,9 +62,9 @@ class SettingsWindow:
                 str(self.current_settings.request_timeout_seconds),
             ),
             (
-                "Activity log file (full path)",
-                "activity_log_path",
-                self.current_settings.activity_log_path,
+                "API issue log file (full path)",
+                "api_activity_log_path",
+                self.current_settings.api_activity_log_path,
             ),
         ]
 
@@ -180,7 +180,9 @@ class SettingsWindow:
             request_timeout_seconds=int(
                 self.setting_boxes["request_timeout_seconds"].get()
             ),
-            activity_log_path=self.setting_boxes["activity_log_path"].get().strip(),
+            api_activity_log_path=self.setting_boxes[
+                "api_activity_log_path"
+            ].get().strip(),
             selected_show_fields=tuple(
                 field_name
                 for field_name, checked in self.field_checks.items()
@@ -204,8 +206,8 @@ class SettingsWindow:
             self.settings_saved(new_settings)
         except OSError as error:
             messagebox.showerror(
-                "Activity log could not be started",
-                f"The program could not use that log location: {error}",
+                "API issue log could not be started",
+                f"The program could not use that API log location: {error}",
                 parent=self.window,
             )
             return
@@ -218,7 +220,7 @@ class SettingsWindow:
             except OSError as restore_error:
                 messagebox.showerror(
                     "Settings not saved",
-                    f"{error}\nThe old log location could not be restored: "
+                    f"{error}\nThe old API log location could not be restored: "
                     f"{restore_error}",
                     parent=self.window,
                 )

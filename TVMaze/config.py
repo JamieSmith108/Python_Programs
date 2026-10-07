@@ -15,7 +15,7 @@ USER_DATA_FOLDER = Path(
         str(Path.home() / "AppData" / "Local"),
     )
 ) / "TVMazeShowFinder"
-DEFAULT_ACTIVITY_LOG_FILE = USER_DATA_FOLDER / "activity.log"
+DEFAULT_API_ACTIVITY_LOG_FILE = USER_DATA_FOLDER / "API_activity_logging.log"
 
 # Every top-level show field returned by the TVMaze show endpoint
 SHOW_FIELD_OPTIONS = (
@@ -74,7 +74,7 @@ class AppSettings:
     tvmaze_api_url: str = "https://api.tvmaze.com/singlesearch/shows"
     request_timeout_seconds: int = 10
     selected_show_fields: tuple[str, ...] = DEFAULT_SELECTED_SHOW_FIELDS
-    activity_log_path: str = str(DEFAULT_ACTIVITY_LOG_FILE)
+    api_activity_log_path: str = str(DEFAULT_API_ACTIVITY_LOG_FILE)
 
 
 class SettingsError(Exception):
@@ -98,6 +98,11 @@ def load_settings(settings_file: Path = SETTINGS_FILE) -> AppSettings:
     for setting_name, setting_value in saved_values.items():
         if setting_name in known_values:
             known_values[setting_name] = setting_value
+    if (
+        "api_activity_log_path" not in saved_values
+        and "activity_log_path" in saved_values
+    ):
+        known_values["api_activity_log_path"] = saved_values["activity_log_path"]
     if isinstance(known_values["selected_show_fields"], list):
         known_values["selected_show_fields"] = tuple(
             known_values["selected_show_fields"]
@@ -136,20 +141,22 @@ def check_settings(settings: AppSettings) -> None:
         raise ValueError("The window title cannot be empty.")
     if not isinstance(settings.tvmaze_api_url, str):
         raise ValueError("The TVMaze API address must be text.")
-    if not isinstance(settings.activity_log_path, str):
-        raise ValueError("The activity log location must be text.")
-    if not settings.activity_log_path.strip():
-        raise ValueError("The activity log location cannot be empty.")
+    if not isinstance(settings.api_activity_log_path, str):
+        raise ValueError("The API troubleshooting log location must be text.")
+    if not settings.api_activity_log_path.strip():
+        raise ValueError("The API troubleshooting log location cannot be empty.")
 
-    log_path = Path(settings.activity_log_path).expanduser()
+    log_path = Path(settings.api_activity_log_path).expanduser()
     if not log_path.is_absolute():
-        raise ValueError("The activity log location must be a full path.")
+        raise ValueError("The API troubleshooting log location must be a full path.")
     try:
         log_path.resolve().relative_to(PROGRAM_FOLDER)
     except ValueError:
         pass
     else:
-        raise ValueError("Save the activity log outside the program folder.")
+        raise ValueError(
+            "Save the API troubleshooting log outside the program folder."
+        )
 
     number_settings = {
         "Window width": settings.window_width,

@@ -128,8 +128,8 @@ def make_one_line(message: str, character_limit: int = 1000) -> str:
     return " ".join(message.split())[:character_limit]
 
 
-def close_logger_handlers(activity_logger: logging.Logger) -> None:
+def close_logger_handlers(logger: logging.Logger) -> None:
     """Close every open file used by a logger."""
-    for file_handler in activity_logger.handlers[:]:
-        activity_logger.removeHandler(file_handler)
+    for file_handler in logger.handlers[:]:
+        logger.removeHandler(file_handler)
         file_handler.close()

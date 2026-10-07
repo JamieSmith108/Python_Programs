@@ -1,4 +1,4 @@
-"""Check that API connection notes are clear and useful."""
+"""Check that API troubleshooting details are recorded clearly and safely."""
 
 from email.message import Message
 import logging
@@ -8,7 +8,11 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from activity_log import ACTIVITY_LOGGER_NAME, start_activity_log, stop_activity_log
+from api_activity_logging import (
+    API_ACTIVITY_LOGGER_NAME,
+    start_api_activity_logging,
+    stop_api_activity_logging,
+)
 from tvmaze_api import request_tvmaze
 
 
@@ -36,23 +40,23 @@ class FakeWebResponse:
         return b'{"name":"Hi"}'
 
 
-class ActivityLogTests(unittest.TestCase):
-    """Check the details written when a web request is made."""
+class APIActivityLoggingTests(unittest.TestCase):
+    """Check the API details written to help find connection problems."""
 
     def setUp(self) -> None:
-        """Create a temporary file for this test's activity notes."""
+        """Create a temporary file for this test's API troubleshooting notes."""
         self.temporary_folder = tempfile.TemporaryDirectory()
-        self.log_file = Path(self.temporary_folder.name) / "activity.log"
-        start_activity_log(self.log_file)
+        self.log_file = Path(self.temporary_folder.name) / "API_activity_logging.log"
+        start_api_activity_logging(self.log_file)
 
     def tearDown(self) -> None:
-        """Close the activity log and remove the temporary test folder."""
-        stop_activity_log()
+        """Close the API log and remove the temporary test folder."""
+        stop_api_activity_logging()
         self.temporary_folder.cleanup()
 
     def read_activity_notes(self) -> str:
-        """Read all the notes written during this test."""
-        for file_handler in logging.getLogger(ACTIVITY_LOGGER_NAME).handlers:
+        """Read all API troubleshooting notes written during this test."""
+        for file_handler in logging.getLogger(API_ACTIVITY_LOGGER_NAME).handlers:
             file_handler.flush()
         return self.log_file.read_text(encoding="utf-8")
 
@@ -68,6 +72,7 @@ class ActivityLogTests(unittest.TestCase):
 
         notes = self.read_activity_notes()
         self.assertEqual(response_body, b'{"name":"Hi"}')
+        self.assertIn("API search", notes)
         self.assertIn("search-reference-123", notes)
         self.assertIn("HTTP status 200", notes)
         self.assertIn("server-request-123", notes)
@@ -120,11 +125,15 @@ class ActivityLogTests(unittest.TestCase):
         self.assertIn("OSError", notes)
         self.assertIn("Network is unreachable", notes)
 
-    def test_activity_log_is_created_at_the_chosen_location(self) -> None:
-        """The logger should create folders and a file at the chosen path."""
-        other_log = Path(self.temporary_folder.name) / "new folder" / "other.log"
+    def test_api_log_is_created_at_the_chosen_location(self) -> None:
+        """The API logger should create folders and a file at the chosen path."""
+        other_log = (
+            Path(self.temporary_folder.name)
+            / "new folder"
+            / "API_activity_logging.log"
+        )
 
-        start_activity_log(str(other_log))
+        start_api_activity_logging(str(other_log))
 
         self.assertTrue(other_log.is_file())
         self.assertTrue(self.log_file.is_file())

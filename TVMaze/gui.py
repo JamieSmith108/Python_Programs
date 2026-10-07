@@ -7,7 +7,10 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from activity_log import start_activity_log, stop_activity_log
+from api_activity_logging import (
+    start_api_activity_logging,
+    stop_api_activity_logging,
+)
 from config import (
     AppSettings,
     EXIT_BUTTON_TEXT,
@@ -119,7 +122,7 @@ class ProgramFinderWindow:
 
     def apply_settings(self, new_settings: AppSettings) -> None:
         """Use the saved settings and update the main window."""
-        start_activity_log(new_settings.activity_log_path)
+        start_api_activity_logging(new_settings.api_activity_log_path)
         self.settings = new_settings
         self.set_window_size()
         self.status_message.set("Settings saved.")
@@ -211,11 +214,11 @@ def start_program() -> None:
     window = tk.Tk()
     try:
         settings = load_settings()
-        start_activity_log(settings.activity_log_path)
+        start_api_activity_logging(settings.api_activity_log_path)
     except OSError as error:
         messagebox.showerror(
-            "Activity log could not be started",
-            f"The program could not create its activity log: {error}",
+            "API issue log could not be started",
+            f"The program could not create its API troubleshooting log: {error}",
             parent=window,
         )
         window.destroy()
@@ -228,4 +231,4 @@ def start_program() -> None:
 
     ProgramFinderWindow(window, settings)
     window.mainloop()
-    stop_activity_log()
+    stop_api_activity_logging()

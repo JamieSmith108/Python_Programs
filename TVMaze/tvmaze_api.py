@@ -9,13 +9,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from activity_log import (
-    log_connection_error,
-    log_http_error,
-    log_request_start,
-    log_request_success,
-    log_unreadable_reply,
-    make_search_reference,
+from api_activity_logging import (
+    log_api_connection_error,
+    log_api_http_error,
+    log_api_request_start,
+    log_successful_api_reply,
+    log_unreadable_api_reply,
+    make_api_search_reference,
 )
 from config import AppSettings, NOT_AVAILABLE, SHOW_FIELD_OPTIONS, load_settings
 from helpers import make_english_value, remove_html_tags
@@ -47,7 +47,7 @@ def find_program_details(
 
     search_query = urlencode({"q": program_name})
     search_url = f"{settings.tvmaze_api_url}?{search_query}"
-    search_reference = make_search_reference()
+    search_reference = make_api_search_reference()
 
     try:
         response_body = request_tvmaze(
@@ -75,7 +75,7 @@ def find_program_details(
     try:
         program_data = json.loads(response_body.decode("utf-8"))
     except (JSONDecodeError, UnicodeDecodeError) as error:
-        log_unreadable_reply(
+        log_unreadable_api_reply(
             search_reference,
             "program details",
             search_url,
@@ -87,7 +87,7 @@ def find_program_details(
         ) from error
 
     if not isinstance(program_data, dict):
-        log_unreadable_reply(
+        log_unreadable_api_reply(
             search_reference,
             "program details",
             search_url,
@@ -123,8 +123,8 @@ def request_tvmaze(
     timeout_seconds: int,
     search_reference: str,
 ) -> bytes:
-    """Send one GET request and write down what happened."""
-    request_started_at = log_request_start(
+    """Send one GET request and record the API connection details."""
+    request_started_at = log_api_request_start(
         search_reference,
         request_part_name,
         request_url,
@@ -141,7 +141,7 @@ def request_tvmaze(
     try:
         with urlopen(request, timeout=timeout_seconds) as response:
             response_body = response.read()
-            log_request_success(
+            log_successful_api_reply(
                 search_reference,
                 request_part_name,
                 request_url,
@@ -152,7 +152,7 @@ def request_tvmaze(
             )
             return response_body
     except HTTPError as error:
-        log_http_error(
+        log_api_http_error(
             search_reference,
             request_part_name,
             request_url,
@@ -163,7 +163,7 @@ def request_tvmaze(
         )
         raise
     except (URLError, TimeoutError, OSError) as error:
-        log_connection_error(
+        log_api_connection_error(
             search_reference,
             request_part_name,
             request_url,

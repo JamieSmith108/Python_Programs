@@ -1,11 +1,12 @@
 """Check that program settings can be saved and loaded safely."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from config import (
-    DEFAULT_ACTIVITY_LOG_FILE,
+    DEFAULT_API_ACTIVITY_LOG_FILE,
     PROGRAM_FOLDER,
     AppSettings,
     SettingsError,
@@ -26,39 +27,65 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(settings, AppSettings())
 
-    def test_default_activity_log_is_outside_the_program_folder(self) -> None:
-        """The default activity log should not be saved with the program files."""
+    def test_default_api_log_is_outside_the_program_folder(self) -> None:
+        """The default API issue log should stay outside the program files."""
         self.assertFalse(
-            DEFAULT_ACTIVITY_LOG_FILE.resolve().is_relative_to(PROGRAM_FOLDER)
+            DEFAULT_API_ACTIVITY_LOG_FILE.resolve().is_relative_to(PROGRAM_FOLDER)
         )
 
-    def test_saved_settings_remember_the_activity_log_location(self) -> None:
-        """The chosen log file path should be remembered after saving."""
+    def test_saved_settings_remember_the_api_log_location(self) -> None:
+        """The chosen API troubleshooting log path should be remembered."""
         with tempfile.TemporaryDirectory() as temporary_folder:
             settings_path = Path(temporary_folder) / "settings.json"
-            log_path = Path(temporary_folder) / "logs" / "activity.log"
-            chosen_settings = AppSettings(activity_log_path=str(log_path))
+            log_path = Path(temporary_folder) / "logs" / "API_activity_logging.log"
+            chosen_settings = AppSettings(api_activity_log_path=str(log_path))
 
             save_settings(chosen_settings, settings_path)
             loaded_settings = load_settings(settings_path)
 
-        self.assertEqual(loaded_settings.activity_log_path, str(log_path))
+        self.assertEqual(loaded_settings.api_activity_log_path, str(log_path))
 
-    def test_saved_activity_log_path_must_be_full_path(self) -> None:
-        """The log location must be an absolute file path."""
-        settings = AppSettings(activity_log_path="activity.log")
+    def test_saved_api_log_path_must_be_full_path(self) -> None:
+        """The API log location must be a full file path."""
+        settings = AppSettings(api_activity_log_path="API_activity_logging.log")
 
         with self.assertRaises(SettingsError):
             save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
 
-    def test_saved_activity_log_path_must_be_outside_program_folder(self) -> None:
-        """The log cannot be placed beside the program source files."""
+    def test_saved_api_log_must_be_outside_program_folder(self) -> None:
+        """The API log cannot be placed beside the program source files."""
         settings = AppSettings(
-            activity_log_path=str(PROGRAM_FOLDER / "activity.log")
+            api_activity_log_path=str(PROGRAM_FOLDER / "API_activity_logging.log")
         )
 
         with self.assertRaises(SettingsError):
             save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
+    def test_old_saved_log_setting_keeps_its_path(self) -> None:
+        """Older settings keep their chosen log path after the setting is renamed."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_path = Path(temporary_folder) / "settings.json"
+            previous_log_path = (
+                Path(temporary_folder) / "older-folder" / "activity.log"
+            )
+            settings_path.write_text(
+                json.dumps({"activity_log_path": str(previous_log_path)}),
+                encoding="utf-8",
+            )
+
+            settings = load_settings(settings_path)
+
+        self.assertEqual(settings.api_activity_log_path, str(previous_log_path))
+
+    def test_saving_settings_uses_the_new_api_log_setting_name(self) -> None:
+        """New settings files should clearly name the API troubleshooting log."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_path = Path(temporary_folder) / "settings.json"
+            save_settings(AppSettings(), settings_path)
+            saved_values = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        self.assertIn("api_activity_log_path", saved_values)
+        self.assertNotIn("activity_log_path", saved_values)
 
     def test_save_and_load_settings_remembers_changes(self) -> None:
         """Saved settings should be available after loading them again."""
