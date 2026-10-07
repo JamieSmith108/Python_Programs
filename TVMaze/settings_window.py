@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from application_logging import log_application_error, log_application_issue
@@ -12,7 +13,11 @@ from config import (
     check_settings,
     save_settings,
 )
-from helpers import make_scrollable_frame, open_file_in_default_program
+from helpers import (
+    log_file_matches_saved_checksum,
+    make_scrollable_frame,
+    show_read_only_text_window,
+)
 
 
 class SettingsWindow:
@@ -139,10 +144,15 @@ class SettingsWindow:
         return first_button_row + 2
 
     def view_log_file(self, setting_name: str, log_description: str) -> None:
-        """Open the log path currently shown in Settings for the person to read."""
+        """Show the chosen log in a safe window that does not allow editing."""
         log_file_path = self.setting_boxes[setting_name].get().strip()
         try:
-            open_file_in_default_program(log_file_path)
+            log_text = Path(log_file_path).expanduser().read_text(encoding="utf-8")
+            checksum_file_path = Path(f"{log_file_path}.sha256")
+            outside_change_was_found = not log_file_matches_saved_checksum(
+                log_file_path,
+                checksum_file_path,
+            )
         except OSError as error:
             log_application_error(f"opening the {log_description}", error)
             messagebox.showerror(
@@ -150,6 +160,14 @@ class SettingsWindow:
                 f"The {log_description} could not be opened:\n{error}",
                 parent=self.window,
             )
+            return
+
+        show_read_only_text_window(
+            self.window,
+            f"Read {log_description}",
+            log_text,
+            outside_change_was_found,
+        )
 
     def add_field_checkboxes(
         self,

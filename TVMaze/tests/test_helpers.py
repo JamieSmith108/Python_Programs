@@ -1,10 +1,10 @@
 """Check that the shared helper functions handle common values."""
 
-from pathlib import Path
-import tempfile
 import unittest
 import logging
 from io import BytesIO
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.request import Request
@@ -15,15 +15,19 @@ from helpers import (
     is_allowed_tvmaze_api_address,
     is_allowed_tvmaze_image_address,
     is_allowed_tvmaze_request_address,
+    log_file_matches_saved_checksum,
+    make_file_checksum,
     make_english_label,
     make_english_value,
     make_one_line,
     make_scrollable_frame,
     make_small_picture,
-    open_file_in_default_program,
     open_trusted_tvmaze_request,
     read_text,
     remove_html_tags,
+    save_log_checksum,
+    show_read_only_text_window,
+    start_rotating_file_log,
     stop_rotating_file_log,
 )
 
@@ -140,6 +144,78 @@ class HelperFunctionTests(unittest.TestCase):
         self.assertLessEqual(small_picture.width, 90)
         self.assertLessEqual(small_picture.height, 125)
 
+    def test_log_checksum_detects_contents_changed_outside_the_app(self) -> None:
+        """A changed log should no longer match the app's saved checksum."""
+        with tempfile.TemporaryDirectory() as folder:
+            log_file = Path(folder) / "application_log"
+            checksum_file = Path(f"{log_file}.sha256")
+            log_file.write_text("First note.\n", encoding="utf-8")
+            save_log_checksum(log_file, checksum_file)
+
+            self.assertTrue(
+                log_file_matches_saved_checksum(log_file, checksum_file)
+            )
+            log_file.write_text("First note.\nChanged outside the app.\n", encoding="utf-8")
+
+            self.assertFalse(
+                log_file_matches_saved_checksum(log_file, checksum_file)
+            )
+            self.assertEqual(len(make_file_checksum(log_file)), 64)
+
+    def test_app_log_updates_checksum_when_app_adds_a_note(self) -> None:
+        """The checksum must follow normal app writes, not report them as edits."""
+        with tempfile.TemporaryDirectory() as folder:
+            log_file = Path(folder) / "application_log"
+            checksum_file = Path(f"{log_file}.sha256")
+            start_rotating_file_log(
+                "checksum_test_logger",
+                log_file,
+                "Logging has started.",
+                "Log saved in:",
+            )
+            try:
+                logger = logging.getLogger("checksum_test_logger")
+                logger.info("A new note from inside the app.")
+
+                self.assertTrue(
+                    log_file_matches_saved_checksum(log_file, checksum_file)
+                )
+            finally:
+                stop_rotating_file_log("checksum_test_logger")
+
+    def test_app_does_not_hide_a_change_made_outside_the_app(self) -> None:
+        """The app must not save a new checksum over outside changes."""
+        with tempfile.TemporaryDirectory() as folder:
+            log_file = Path(folder) / "application_log"
+            checksum_file = Path(f"{log_file}.sha256")
+            start_rotating_file_log(
+                "changed_log_test_logger",
+                log_file,
+                "Logging has started.",
+                "Log saved in:",
+            )
+            try:
+                log_file.write_text(
+                    "Someone changed this log outside the app.\n",
+                    encoding="utf-8",
+                )
+                saved_checksum_before_app_note = checksum_file.read_text(
+                    encoding="ascii"
+                )
+                logging.getLogger("changed_log_test_logger").warning(
+                    "The app added another note."
+                )
+
+                self.assertFalse(
+                    log_file_matches_saved_checksum(log_file, checksum_file)
+                )
+                self.assertEqual(
+                    checksum_file.read_text(encoding="ascii"),
+                    saved_checksum_before_app_note,
+                )
+            finally:
+                stop_rotating_file_log("changed_log_test_logger")
+
     def test_scrollable_frame_helper_connects_contents_and_scrollbar(self) -> None:
         """Both scrollable lists should use the same tested setup."""
         parent = object()
@@ -226,24 +302,77 @@ class HelperFunctionTests(unittest.TestCase):
 
         self.assertIsNone(redirect)
 
-    def test_open_file_uses_the_computers_default_program(self) -> None:
-        """An existing file should open with the correct system command."""
-        with tempfile.TemporaryDirectory() as temporary_folder:
-            log_file = Path(temporary_folder) / "application_log"
-            log_file.write_text("A test note.", encoding="utf-8")
+    def test_log_viewer_displays_notes_without_editing_them(self) -> None:
+        """Log contents should be visible while the text box stays locked."""
+        with (
+            patch("helpers.tk.Toplevel") as make_window,
+            patch("helpers.ttk.Label") as make_label,
+            patch("helpers.ttk.Frame"),
+            patch("helpers.tk.Text") as make_text,
+            patch("helpers.ttk.Scrollbar"),
+        ):
+            text_window = show_read_only_text_window(
+                object(),
+                "Read API issue log",
+                "The request worked.",
+            )
 
-            with patch("helpers.os.startfile") as open_with_windows:
-                open_file_in_default_program(log_file)
+        self.assertIs(text_window, make_window.return_value)
+        make_text.return_value.insert.assert_called_once_with(
+            "1.0",
+            "The request worked.",
+        )
+        make_text.return_value.configure.assert_called_with(state="disabled")
+        self.assertEqual(make_text.return_value.bind.call_count, 4)
+        self.assertIn("read-only", make_label.call_args.kwargs["text"])
 
-        open_with_windows.assert_called_once_with(str(log_file.resolve()))
+    def test_log_viewer_warns_that_the_file_was_changed_outside_the_app(self) -> None:
+        """The reader should see a clear warning after a checksum mismatch."""
+        with (
+            patch("helpers.tk.Toplevel"),
+            patch("helpers.ttk.Label") as make_label,
+            patch("helpers.ttk.Frame"),
+            patch("helpers.tk.Text"),
+            patch("helpers.ttk.Scrollbar"),
+        ):
+            show_read_only_text_window(
+                object(),
+                "Read application log",
+                "A changed note.",
+                outside_change_was_found=True,
+            )
 
-    def test_open_file_reports_when_the_log_file_is_missing(self) -> None:
-        """A missing log should raise a clear error instead of silently failing."""
-        with tempfile.TemporaryDirectory() as temporary_folder:
-            missing_file = Path(temporary_folder) / "not-created-yet.log"
+        self.assertIn("changed outside this program", make_label.call_args.kwargs["text"])
 
-            with self.assertRaisesRegex(FileNotFoundError, "does not exist"):
-                open_file_in_default_program(missing_file)
+    def test_log_viewer_warns_if_someone_tries_to_amend_a_log(self) -> None:
+        """Typing or pasting must warn the reader and leave the log unchanged."""
+        with (
+            patch("helpers.tk.Toplevel"),
+            patch("helpers.ttk.Label"),
+            patch("helpers.ttk.Frame"),
+            patch("helpers.tk.Text") as make_text,
+            patch("helpers.ttk.Scrollbar"),
+            patch("helpers.messagebox.showwarning") as show_warning,
+        ):
+            show_read_only_text_window(object(), "Read log", "Saved note.")
+
+            keyboard_callback = make_text.return_value.bind.call_args_list[0].args[1]
+            edit_result = keyboard_callback(
+                SimpleNamespace(
+                    keysym="x",
+                    char="x",
+                )
+            )
+            keyboard_callback(SimpleNamespace(keysym="y", char="y"))
+            paste_callback = make_text.return_value.bind.call_args_list[1].args[1]
+            paste_result = paste_callback(
+                SimpleNamespace(keysym="??", char=""),
+            )
+
+        self.assertEqual(edit_result, "break")
+        self.assertEqual(paste_result, "break")
+        show_warning.assert_called_once()
+
 
     def test_close_logger_handlers_removes_open_handlers(self) -> None:
         """A closed logger should no longer keep its handlers."""

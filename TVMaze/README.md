@@ -105,11 +105,32 @@ files must be saved outside the program folder and must use different file
 paths.
 
 The Settings window has **View API issue log** and **View application log**
-buttons. Each button opens the file at the path currently shown in its setting
-box with the usual Windows program for reading that file. If the log has
-not been created yet, the program explains that it cannot open it. Save the
-settings with that log path first; the program creates the log when it starts
-using the saved location.
+buttons. Each button shows the file at the path currently in its setting box
+in a read-only window inside the program. You can select and copy the notes,
+but you cannot change them there. If you try to type, delete, paste, or cut,
+the program warns you and blocks the change. If the log has not been created
+yet, the program explains that it cannot open it. Save the settings with that
+log path first; the program creates the log when it starts using the saved
+location.
+
+The read-only rule applies to the viewer inside this program. The log files
+must still be writable by the program so it can add new notes. Opening the
+file separately in another program is outside this protection.
+
+The program also saves a `.sha256` checksum file beside each log. When you
+open a log in Settings, the program compares the log with its saved checksum.
+If the contents do not match, the viewer shows a warning that the log may have
+been changed outside the program. Normal notes written by the program update
+the checksum automatically.
+
+This check notices changes to the log contents; it cannot tell that someone
+tried to edit a file if the edit was blocked or did not change its contents.
+It is a warning aid, not a security lock: someone who changes both the log
+and its checksum can avoid this simple check. Older log files without a
+checksum get a starting checksum the first time the updated program uses
+them, so changes made before that first use cannot be detected.
+After the program notices an outside change, it keeps the old checksum rather
+than replacing it with a checksum for the changed contents.
 
 Your saved choices go into `settings.json` beside the program. You can change
 settings in the window; you do not need to edit this file by hand. The default
@@ -224,6 +245,10 @@ private.
 - **The application log cannot be created:** Check that its folder can be
   created, that you have permission to write there, and that its path is
   outside the program folder.
+- **The log viewer warns about an outside change:** The log no longer matches
+  its saved checksum. Keep a copy if you need to investigate it. The program
+  still lets you read and copy the log, but it does not edit the old checksum
+  to hide the change.
 - **Pictures do not appear:** Install the requirements with
   `python -m pip install -r requirements.txt`, then restart the program.
 - **Settings will not save:** Check that all number boxes contain whole

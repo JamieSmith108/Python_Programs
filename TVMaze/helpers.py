@@ -2,14 +2,14 @@
 
 import re
 from collections.abc import Mapping
+import hashlib
 from html.parser import HTMLParser
 import logging
-import os
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from PIL import Image
 from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import (
@@ -203,6 +203,92 @@ def fit_scrollable_frame_width(
     canvas.itemconfigure(canvas_window, width=event.width)
 
 
+def show_read_only_text_window(
+    parent: tk.Misc,
+    window_title: str,
+    text_contents: str,
+    outside_change_was_found: bool = False,
+) -> tk.Toplevel:
+    """Show saved notes in a window that blocks changes and offers copying."""
+    text_window = tk.Toplevel(parent)
+    text_window.title(window_title)
+    text_window.geometry("760x520")
+    text_window.transient(parent)
+
+    viewer_message = "This file is read-only here. You can select and copy its words."
+    if outside_change_was_found:
+        viewer_message = (
+            "Warning: This log does not match its saved checksum. "
+            "It may have been changed outside this program. "
+            + viewer_message
+        )
+    ttk.Label(
+        text_window,
+        text=viewer_message,
+        wraplength=720,
+    ).pack(anchor="w", padx=12, pady=12)
+
+    text_area_frame = ttk.Frame(text_window, padding=(12, 0, 12, 12))
+    text_area_frame.pack(fill="both", expand=True)
+    text_area = tk.Text(text_area_frame, wrap="word", state="normal")
+    scroll_bar = ttk.Scrollbar(
+        text_area_frame,
+        orient="vertical",
+        command=text_area.yview,
+    )
+    text_area.configure(yscrollcommand=scroll_bar.set)
+    text_area.pack(side="left", fill="both", expand=True)
+    scroll_bar.pack(side="right", fill="y")
+    text_area.insert("1.0", text_contents)
+    text_area.configure(state="disabled")
+
+    warning_state = {"shown": False}
+    text_area.bind(
+        "<KeyPress>",
+        lambda event: block_read_only_text_change(
+            event,
+            text_window,
+            warning_state,
+        ),
+    )
+    for edit_event in ("<<Paste>>", "<<Cut>>", "<<Clear>>"):
+        text_area.bind(
+            edit_event,
+            lambda event: block_read_only_text_change(
+                event,
+                text_window,
+                warning_state,
+                is_edit_event=True,
+            ),
+        )
+    return text_window
+
+
+def block_read_only_text_change(
+    event: tk.Event,
+    parent: tk.Misc,
+    warning_state: dict[str, bool],
+    is_edit_event: bool = False,
+) -> str | None:
+    """Stop edit keys and warn once while still allowing reading and copying."""
+    edit_keys = {"BackSpace", "Delete", "Return", "KP_Enter"}
+    is_edit_key = (
+        event.keysym in edit_keys
+        or bool(event.char and event.char.isprintable())
+    )
+    if not is_edit_key and not is_edit_event:
+        return None
+
+    if not warning_state["shown"]:
+        messagebox.showwarning(
+            "This log is read-only",
+            "Log files are kept as records and cannot be changed in this window.",
+            parent=parent,
+        )
+        warning_state["shown"] = True
+    return "break"
+
+
 def is_allowed_tvmaze_api_address(address: str) -> bool:
     """Check that an address points to TVMaze's official show search."""
     return is_trusted_tvmaze_address(
@@ -324,6 +410,83 @@ class DoNotFollowWebsiteRedirects(HTTPRedirectHandler):
         return None
 
 
+class ChecksumRotatingFileHandler(RotatingFileHandler):
+    """Keep a checksum so later changes to the active log can be noticed."""
+
+    def __init__(
+        self,
+        log_file_path: str | Path,
+        maximum_file_size: int,
+        older_file_count: int,
+    ) -> None:
+        """Open a rotating log and remember its starting checksum."""
+        super().__init__(
+            log_file_path,
+            maxBytes=maximum_file_size,
+            backupCount=older_file_count,
+            encoding="utf-8",
+        )
+        self.checksum_file_path = Path(f"{log_file_path}.sha256")
+        self.outside_change_was_found = False
+
+        if self.checksum_file_path.exists():
+            self.outside_change_was_found = not log_file_matches_saved_checksum(
+                log_file_path,
+                self.checksum_file_path,
+            )
+        else:
+            save_log_checksum(log_file_path, self.checksum_file_path)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Write an app note and update its checksum unless outside edits exist."""
+        if not self.outside_change_was_found:
+            self.outside_change_was_found = not log_file_matches_saved_checksum(
+                self.baseFilename,
+                self.checksum_file_path,
+            )
+
+        super().emit(record)
+
+        if not self.outside_change_was_found:
+            save_log_checksum(self.baseFilename, self.checksum_file_path)
+
+
+def make_file_checksum(file_path: str | Path) -> str:
+    """Make a SHA-256 checksum from a file's current contents."""
+    checksum = hashlib.sha256()
+    with Path(file_path).open("rb") as file_contents:
+        for file_piece in iter(lambda: file_contents.read(64_000), b""):
+            checksum.update(file_piece)
+    return checksum.hexdigest()
+
+
+def save_log_checksum(
+    log_file_path: str | Path,
+    checksum_file_path: str | Path,
+) -> None:
+    """Save the current log checksum beside the log for later comparison."""
+    log_path = Path(log_file_path)
+    checksum_path = Path(checksum_file_path)
+    checksum_path.write_text(make_file_checksum(log_path) + "\n", encoding="ascii")
+
+
+def log_file_matches_saved_checksum(
+    log_file_path: str | Path,
+    checksum_file_path: str | Path,
+) -> bool:
+    """Check whether a log still matches the checksum saved by the app."""
+    log_path = Path(log_file_path)
+    checksum_path = Path(checksum_file_path)
+    if not log_path.is_file() or not checksum_path.is_file():
+        return False
+
+    try:
+        saved_checksum = checksum_path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        return False
+    return saved_checksum == make_file_checksum(log_path)
+
+
 def open_trusted_tvmaze_request(request: Request, timeout_seconds: int):
     """Open a checked TVMaze address without following any redirects."""
     if not is_allowed_tvmaze_request_address(request.full_url):
@@ -339,15 +502,6 @@ def open_trusted_tvmaze_request(request: Request, timeout_seconds: int):
 
     safe_opener = build_opener(DoNotFollowWebsiteRedirects())
     return safe_opener.open(request, timeout=timeout_seconds)
-
-
-def open_file_in_default_program(file_path: str | Path) -> None:
-    """Open an existing file with its usual program in Windows."""
-    chosen_file = Path(file_path).expanduser().resolve()
-    if not chosen_file.is_file():
-        raise FileNotFoundError(f"The file does not exist: {chosen_file}")
-
-    os.startfile(str(chosen_file))
 
 
 def start_rotating_file_log(
@@ -368,11 +522,10 @@ def start_rotating_file_log(
         "%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    file_handler = RotatingFileHandler(
+    file_handler = ChecksumRotatingFileHandler(
         log_file,
-        maxBytes=1_000_000,
-        backupCount=3,
-        encoding="utf-8",
+        maximum_file_size=1_000_000,
+        older_file_count=3,
     )
     file_handler.setFormatter(log_format)
 
