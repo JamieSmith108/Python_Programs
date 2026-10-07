@@ -1,0 +1,33 @@
+{
+    "window_title": "TVMaze Show Finder",
+    "window_width": 720,
+    "window_height": 580,
+    "minimum_window_width": 520,
+    "minimum_window_height": 420,
+    "tvmaze_api_url": "https://api.tvmaze.com/singlesearch/shows",
+    "request_timeout_seconds": 10,
+    "selected_show_fields": [
+        "url",
+        "name",
+        "type",
+        "language",
+        "genres",
+        "status",
+        "runtime",
+        "averageRuntime",
+        "premiered",
+        "ended",
+        "officialSite",
+        "schedule",
+        "rating",
+        "weight",
+        "network",
+        "webChannel",
+        "dvdCountry",
+        "externals",
+        "image",
+        "summary",
+        "updated",
+        "_links"
+    ]
+}

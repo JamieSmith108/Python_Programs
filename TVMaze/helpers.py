@@ -1,9 +1,32 @@
 """Small reusable functions used by the TVMaze show finder."""
 
+import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
 
 from config import NOT_AVAILABLE
+
+
+FIELD_LABELS = {
+    "averageRuntime": "Average episode length",
+    "average": "Average rating",
+    "dvdCountry": "DVD country",
+    "external": "External ID",
+    "externals": "External IDs",
+    "href": "Web address",
+    "id": "ID",
+    "imdb": "IMDb ID",
+    "medium": "Medium-sized image",
+    "name": "Name",
+    "network": "TV network",
+    "original": "Full-sized image",
+    "previousepisode": "Previous episode",
+    "self": "TVMaze page",
+    "thetvdb": "TheTVDB ID",
+    "timezone": "Time zone",
+    "tvrage": "TVRage ID",
+    "webChannel": "Web channel",
+}
 
 
 class SummaryTextParser(HTMLParser):
@@ -12,58 +35,37 @@ class SummaryTextParser(HTMLParser):
     def __init__(self) -> None:
         """Prepare a place to collect the words in a summary."""
         super().__init__(convert_charrefs=True)
-        self.text_parts: list[str] = []
+        self.summary_words: list[str] = []
 
-    def handle_data(self, data: str) -> None:
+    def handle_data(self, text_piece: str) -> None:
         """Save a piece of ordinary text from the summary."""
-        self.text_parts.append(data)
+        self.summary_words.append(text_piece)
 
-    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(
+        self,
+        tag: str,
+        attributes: list[tuple[str, str | None]],
+    ) -> None:
         """Separate words when an HTML block or line break starts."""
-        del _attrs
+        del attributes
         if tag in {"br", "div", "li", "p"}:
-            self.text_parts.append(" ")
+            self.summary_words.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         """Separate words when an HTML block ends."""
         if tag in {"div", "li", "p"}:
-            self.text_parts.append(" ")
+            self.summary_words.append(" ")
 
 
-def read_text(value: object, fallback: str = NOT_AVAILABLE) -> str:
-    """Turn a text or number into readable text, or use the fallback."""
-    if isinstance(value, str) and value.strip():
-        return value.strip()
+def read_text(input_value: object, replacement: str = NOT_AVAILABLE) -> str:
+    """Return clean text, or a replacement message when no text is available."""
+    if isinstance(input_value, str) and input_value.strip():
+        return input_value.strip()
 
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return str(value)
+    if isinstance(input_value, (int, float)) and not isinstance(input_value, bool):
+        return str(input_value)
 
-    return fallback
-
-
-def read_number(value: object) -> float | None:
-    """Return a numeric value, or None when the value is not a number."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
-
-    return None
-
-
-def read_text_list(value: object) -> str:
-    """Join a list of words into one readable line."""
-    if not isinstance(value, list):
-        return NOT_AVAILABLE
-
-    words = [item.strip() for item in value if isinstance(item, str) and item.strip()]
-    return ", ".join(words) if words else NOT_AVAILABLE
-
-
-def read_nested_text(value: object, key: str) -> str:
-    """Read a text value from a dictionary inside another value."""
-    if not isinstance(value, Mapping):
-        return NOT_AVAILABLE
-
-    return read_text(value.get(key))
+    return replacement
 
 
 def remove_html_tags(summary: str) -> str:
@@ -71,4 +73,50 @@ def remove_html_tags(summary: str) -> str:
     parser = SummaryTextParser()
     parser.feed(summary)
     parser.close()
-    return " ".join("".join(parser.text_parts).split())
+    return " ".join("".join(parser.summary_words).split())
+
+
+def make_english_label(field_name: str) -> str:
+    """Turn a technical field name into a readable English label."""
+    if field_name in FIELD_LABELS:
+        return FIELD_LABELS[field_name]
+
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", field_name)
+    words = words.replace("_", " ").replace("-", " ")
+    return " ".join(word.capitalize() for word in words.split())
+
+
+def make_english_value(value: object, field_name: str = "") -> str:
+    """Turn nested API values into readable text instead of JSON."""
+    if value is None:
+        return NOT_AVAILABLE
+
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+
+    if isinstance(value, Mapping):
+        readable_parts = []
+        for nested_name, nested_value in value.items():
+            if nested_value is None:
+                continue
+
+            readable_value = make_english_value(nested_value, str(nested_name))
+            if nested_name == "name" and isinstance(nested_value, str):
+                readable_parts.insert(0, readable_value)
+            else:
+                readable_parts.append(
+                    f"{make_english_label(str(nested_name))}: {readable_value}"
+                )
+
+        return "\n".join(readable_parts) if readable_parts else NOT_AVAILABLE
+
+    if isinstance(value, list):
+        readable_items = [
+            make_english_value(item, field_name)
+            for item in value
+            if item is not None
+        ]
+        separator = ", " if all(isinstance(item, str) for item in value) else "; "
+        return separator.join(readable_items) if readable_items else NOT_AVAILABLE
+
+    return read_text(value)

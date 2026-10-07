@@ -1,52 +1,107 @@
-"""Create the screen and connect it to the TVMaze search."""
+"""Build the main window and connect its buttons to the program."""
 
+from io import BytesIO
 from threading import Thread
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
+
+from PIL import Image, ImageTk
 
 from config import (
-    MINIMUM_WINDOW_HEIGHT,
-    MINIMUM_WINDOW_WIDTH,
+    AppSettings,
+    EXIT_BUTTON_TEXT,
     SEARCH_BUTTON_TEXT,
     SEARCH_LABEL,
+    SettingsError,
     WAITING_MESSAGE,
     WELCOME_MESSAGE,
-    WINDOW_SIZE,
-    WINDOW_TITLE,
+    load_settings,
 )
-from helpers import read_text
-from tvmaze_api import ShowDetails, ShowNotFoundError, TVMazeError, search_for_show
+from presentation import format_program_details
+from settings_window import SettingsWindow
+from tvmaze_api import (
+    ProgramDetails,
+    ProgramNotFoundError,
+    TVMazeError,
+    find_program_details,
+)
 
 
-class ShowFinderWindow:
-    """Build the screen and respond when someone searches for a show."""
+class ProgramFinderWindow:
+    """Show the search box, settings button, results, and Exit button."""
 
-    def __init__(self, window: tk.Tk) -> None:
-        """Set up the search box, button, and results area."""
+    def __init__(self, window: tk.Tk, settings: AppSettings) -> None:
+        """Set up the main window and remember the saved settings."""
         self.window = window
-        self.window.title(WINDOW_TITLE)
-        self.window.geometry(WINDOW_SIZE)
-        self.window.minsize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
+        self.settings = settings
+        self.search_name = tk.StringVar()
+        self.status_message = tk.StringVar(value=WELCOME_MESSAGE)
+        self.poster_image: ImageTk.PhotoImage | None = None
 
-        self.search_text = tk.StringVar()
-        self.search_button: ttk.Button
-        self.result_text: tk.Text
-        self.status_text = tk.StringVar(value=WELCOME_MESSAGE)
+        self.set_window_size()
+        self.build_window()
 
-        self.build_screen()
+    def set_window_size(self) -> None:
+        """Set the window title and size from the saved settings."""
+        self.window.title(self.settings.window_title)
+        self.window.geometry(
+            f"{self.settings.window_width}x{self.settings.window_height}"
+        )
+        self.window.minsize(
+            self.settings.minimum_window_width,
+            self.settings.minimum_window_height,
+        )
 
-    def build_screen(self) -> None:
-        """Place the search controls and results area in the window."""
+    def build_window(self) -> None:
+        """Place the search controls and results in the main window."""
         main_frame = ttk.Frame(self.window, padding=16)
         main_frame.pack(fill="both", expand=True)
 
-        search_label = ttk.Label(main_frame, text=SEARCH_LABEL)
-        search_label.pack(anchor="w")
+        self.add_exit_button(main_frame)
+        self.add_status_message(main_frame)
+        self.add_settings_button(main_frame)
+        self.add_search_box(main_frame)
 
-        search_row = ttk.Frame(main_frame)
+        self.poster_label = ttk.Label(main_frame)
+        self.poster_label.pack(pady=(0, 8))
+
+        self.result_box = tk.Text(main_frame, wrap="word", height=18)
+        self.result_box.pack(fill="both", expand=True)
+        self.show_message(WELCOME_MESSAGE)
+
+    def add_exit_button(self, parent: ttk.Frame) -> None:
+        """Put a button at the bottom that closes the program."""
+        ttk.Button(
+            parent,
+            text=EXIT_BUTTON_TEXT,
+            command=self.window.destroy,
+        ).pack(side="bottom", anchor="center", pady=(10, 0))
+
+    def add_status_message(self, parent: ttk.Frame) -> None:
+        """Show a short message under the results."""
+        ttk.Label(
+            parent,
+            textvariable=self.status_message,
+        ).pack(side="bottom", anchor="w", pady=(8, 0))
+
+    def add_settings_button(self, parent: ttk.Frame) -> None:
+        """Put the cog button at the top-right of the window."""
+        settings_row = ttk.Frame(parent)
+        settings_row.pack(fill="x")
+        ttk.Button(
+            settings_row,
+            text="⚙",
+            width=3,
+            command=self.open_settings,
+        ).pack(side="right")
+
+    def add_search_box(self, parent: ttk.Frame) -> None:
+        """Add a box and button for searching by program name."""
+        ttk.Label(parent, text=SEARCH_LABEL).pack(anchor="w")
+        search_row = ttk.Frame(parent)
         search_row.pack(fill="x", pady=(6, 12))
 
-        search_box = ttk.Entry(search_row, textvariable=self.search_text)
+        search_box = ttk.Entry(search_row, textvariable=self.search_name)
         search_box.pack(side="left", fill="x", expand=True)
         search_box.bind("<Return>", self.start_search)
 
@@ -55,94 +110,109 @@ class ShowFinderWindow:
             text=SEARCH_BUTTON_TEXT,
             command=self.start_search,
         )
-        self.search_button.pack(side="left", padx=(8, 0))
+        self.search_button.pack(side="right", padx=(8, 0))
 
-        self.result_text = tk.Text(main_frame, wrap="word", height=18)
-        self.result_text.pack(fill="both", expand=True)
-        self.result_text.insert("1.0", WELCOME_MESSAGE)
-        self.result_text.configure(state="disabled")
+    def open_settings(self) -> None:
+        """Open the separate window for changing program settings."""
+        SettingsWindow(self.window, self.settings, self.apply_settings)
 
-        status_label = ttk.Label(main_frame, textvariable=self.status_text)
-        status_label.pack(anchor="w", pady=(8, 0))
+    def apply_settings(self, new_settings: AppSettings) -> None:
+        """Use the saved settings and update the main window."""
+        self.settings = new_settings
+        self.set_window_size()
+        self.status_message.set("Settings saved.")
 
     def start_search(self, event: tk.Event | None = None) -> None:
-        """Check the search text and start looking without freezing the window."""
+        """Check the search box, then look up the program in the background."""
         del event
-        search_name = self.search_text.get().strip()
-        if not search_name:
+        program_name = self.search_name.get().strip()
+        if not program_name:
             self.show_message("Please enter the name of a TV program.")
             return
 
         self.search_button.configure(state="disabled")
-        self.status_text.set(WAITING_MESSAGE)
+        self.status_message.set(WAITING_MESSAGE)
         self.show_message(WAITING_MESSAGE)
-        search_thread = Thread(
-            target=self.look_up_show,
-            args=(search_name,),
+        Thread(
+            target=self.find_program,
+            args=(program_name,),
             daemon=True,
-        )
-        search_thread.start()
+        ).start()
 
-    def look_up_show(self, search_name: str) -> None:
-        """Look up the show, then safely send the result back to the screen."""
+    def find_program(self, program_name: str) -> None:
+        """Ask TVMaze for a program and send the answer back to the window."""
         try:
-            show_details = search_for_show(search_name)
-        except (ShowNotFoundError, TVMazeError) as error:
-            message = str(error)
-            self.window.after(0, lambda: self.finish_with_message(message))
-        else:
-            self.window.after(0, lambda: self.finish_with_show(show_details))
+            program_details = find_program_details(program_name, self.settings)
+        except (ProgramNotFoundError, TVMazeError) as error:
+            error_message = str(error)
+            self.window.after(
+                0,
+                lambda: self.finish_with_message(error_message),
+            )
+            return
+
+        self.window.after(
+            0,
+            lambda: self.finish_with_program(program_details),
+        )
 
     def finish_with_message(self, message: str) -> None:
-        """Show a search message and let the person search again."""
+        """Show an error or hint and allow another search."""
         self.show_message(message)
-        self.status_text.set(message)
+        self.status_message.set(message)
         self.search_button.configure(state="normal")
 
-    def finish_with_show(self, show_details: ShowDetails) -> None:
-        """Show the program details and let the person search again."""
-        self.show_message(format_show_details(show_details))
-        self.status_text.set(f"Found: {show_details.name}")
+    def finish_with_program(self, program: ProgramDetails) -> None:
+        """Show the program information and allow another search."""
+        if "image" in self.settings.selected_show_fields:
+            self.show_poster(program.image_data)
+        else:
+            self.show_poster(None)
+
+        self.show_message(
+            format_program_details(program, self.settings.selected_show_fields)
+        )
+        self.status_message.set(f"Found: {program.fields.get('name', 'program')}")
         self.search_button.configure(state="normal")
+
+    def show_poster(self, picture_data: bytes | None) -> None:
+        """Display the downloaded picture, small enough to fit in the window."""
+        if picture_data is None:
+            self.poster_label.configure(image="", text="")
+            self.poster_image = None
+            return
+
+        try:
+            picture = Image.open(BytesIO(picture_data))
+            picture.thumbnail((220, 300))
+            self.poster_image = ImageTk.PhotoImage(picture)
+        except (OSError, ValueError):
+            self.poster_label.configure(
+                image="",
+                text="The show image could not be displayed.",
+            )
+            self.poster_image = None
+            return
+
+        self.poster_label.configure(image=self.poster_image, text="")
 
     def show_message(self, message: str) -> None:
-        """Replace the words currently shown in the results area."""
-        self.result_text.configure(state="normal")
-        self.result_text.delete("1.0", "end")
-        self.result_text.insert("1.0", message)
-        self.result_text.configure(state="disabled")
+        """Replace the text shown in the results box."""
+        self.result_box.configure(state="normal")
+        self.result_box.delete("1.0", "end")
+        self.result_box.insert("1.0", message)
+        self.result_box.configure(state="disabled")
 
 
-def format_show_details(show_details: ShowDetails) -> str:
-    """Turn the show details into a clear list for the results area."""
-    details = [
-        ("Program", show_details.name),
-        ("Type", show_details.show_type),
-        ("Language", show_details.language),
-        ("Genres", show_details.genres),
-        ("Status", show_details.status),
-        ("First shown", show_details.premiered),
-        ("Last shown", show_details.ended),
-        ("Episode length", add_minutes(show_details.runtime)),
-        ("Rating", show_details.rating),
-        ("TV channel", show_details.channel),
-        ("Schedule", show_details.schedule),
-        ("Official website", show_details.official_site),
-        ("Summary", show_details.summary),
-    ]
-    return "\n\n".join(f"{label}: {value}" for label, value in details)
-
-
-def add_minutes(runtime: str) -> str:
-    """Add minutes after an episode length when TVMaze provides one."""
-    if runtime.isdigit():
-        return f"{runtime} minutes"
-
-    return read_text(runtime)
-
-
-def run_app() -> None:
-    """Open the program window and keep it running until it is closed."""
+def start_program() -> None:
+    """Load saved settings and open the TVMaze program window."""
     window = tk.Tk()
-    ShowFinderWindow(window)
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        messagebox.showerror("Settings could not be loaded", str(error), parent=window)
+        window.destroy()
+        return
+
+    ProgramFinderWindow(window, settings)
     window.mainloop()
