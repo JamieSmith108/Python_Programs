@@ -2,12 +2,20 @@
 
 import json
 from dataclasses import asdict, dataclass
+import os
 from pathlib import Path
 
 
 # The settings file lives beside this program and is created when settings are saved.
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-ACTIVITY_LOG_FILE = Path(__file__).with_name("activity.log")
+PROGRAM_FOLDER = Path(__file__).resolve().parent
+USER_DATA_FOLDER = Path(
+    os.environ.get(
+        "LOCALAPPDATA",
+        str(Path.home() / "AppData" / "Local"),
+    )
+) / "TVMazeShowFinder"
+DEFAULT_ACTIVITY_LOG_FILE = USER_DATA_FOLDER / "activity.log"
 
 # Every top-level show field returned by the TVMaze show endpoint
 SHOW_FIELD_OPTIONS = (
@@ -66,6 +74,7 @@ class AppSettings:
     tvmaze_api_url: str = "https://api.tvmaze.com/singlesearch/shows"
     request_timeout_seconds: int = 10
     selected_show_fields: tuple[str, ...] = DEFAULT_SELECTED_SHOW_FIELDS
+    activity_log_path: str = str(DEFAULT_ACTIVITY_LOG_FILE)
 
 
 class SettingsError(Exception):
@@ -127,6 +136,20 @@ def check_settings(settings: AppSettings) -> None:
         raise ValueError("The window title cannot be empty.")
     if not isinstance(settings.tvmaze_api_url, str):
         raise ValueError("The TVMaze API address must be text.")
+    if not isinstance(settings.activity_log_path, str):
+        raise ValueError("The activity log location must be text.")
+    if not settings.activity_log_path.strip():
+        raise ValueError("The activity log location cannot be empty.")
+
+    log_path = Path(settings.activity_log_path).expanduser()
+    if not log_path.is_absolute():
+        raise ValueError("The activity log location must be a full path.")
+    try:
+        log_path.resolve().relative_to(PROGRAM_FOLDER)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Save the activity log outside the program folder.")
 
     number_settings = {
         "Window width": settings.window_width,

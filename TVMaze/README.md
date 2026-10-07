@@ -2,7 +2,8 @@
 
 TVMaze Show Finder is a small desktop program. Type a TV show name, and it
 looks up the show using the free TVMaze website. The program shows the details
-in a window and can display the show's picture.
+in a window and can display the show's picture. The TVMaze API is the service
+the program uses to ask the TVMaze website for show information.
 
 ## What you need
 
@@ -61,6 +62,19 @@ The next search uses your selected fields. TVMaze's nested information is
 shown with readable labels, not JSON braces and quotes. For example, a rating
 appears as “8.3 out of 10,” and a schedule can appear as “Sunday at 8:00 PM.”
 
+The available details are:
+
+- Show ID and TVMaze page
+- Program name, program type, language, genres, and status
+- Episode length and average episode length
+- First shown and last shown dates
+- Official website and schedule
+- Rating and match weight
+- TV network and web channel
+- DVD country and external database IDs
+- Show images and summary
+- Last updated date and related episode links
+
 ## Change other settings
 
 The Settings window also lets you change:
@@ -70,10 +84,13 @@ The Settings window also lets you change:
 - The smallest size the main window can be
 - The TVMaze search address
 - How long the program waits for a reply, in seconds
+- The full path where the activity log is saved
 
 Choose **Save settings** to remember your choices. The window title and size
 change at once. The search address, wait time, and selected details are used
-for the next search.
+for the next search. Enter a full file path for the activity log, such as
+`C:\Users\YourName\AppData\Local\TVMazeShowFinder\activity.log`. The log
+location must be outside the program folder.
 
 Your saved choices go into `settings.json` beside the program. You can change
 settings in the window; you do not need to edit this file by hand. The default
@@ -91,20 +108,26 @@ settings and the list of available TVMaze fields are in `config.py`.
 - `activity_log.py` records readable notes about API connections.
 - `config.py` holds default settings and the list of available show details.
 - `settings.json` stores the choices you saved in the Settings window.
-- `activity.log` stores recent API connection notes.
+- The activity log is saved at the location shown in Settings, outside the
+  program folder.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
 
 ## Read the activity log
 
-The program writes connection notes to `activity.log` in the same folder as
-`main.py`. It records when the program contacts TVMaze, what reply code the
-server sends, how long the reply takes, how many bytes it contains, and
-helpful server details such as request or trace IDs. If a connection fails,
-the log records the kind of problem and its explanation.
+The program writes connection notes to the activity log location shown in
+Settings. By default, this is in your Windows user application-data folder:
+`%LOCALAPPDATA%\TVMazeShowFinder\activity.log`. This keeps the log out of the
+program folder. You can use the Settings window to choose another full file
+path, as long as it is outside the program folder.
 
-Each search has a unique correlation ID. The same ID is used for the show
-details and picture requests, so you can tell which notes belong together.
+The log records when the program contacts TVMaze, what reply code the server
+sends, how long the reply takes, how many bytes it contains, and helpful
+server details such as request or trace IDs. If a connection fails, the log
+records the kind of problem and its explanation.
+
+Each search has a unique search reference. The same reference is used for the
+show details and picture requests, so you can tell which notes belong together.
 The log uses plain-English messages and rotates old files when the log grows
 too large. Up to three older log files are kept.
 
@@ -116,8 +139,9 @@ responses. A search address includes the name typed into the search box.
 
 - **The program cannot find a show:** Check the spelling and try again.
 - **The search cannot connect:** Check your internet connection and try again.
-- **The activity log cannot be created:** Check that the program folder is
-  writable and that no other program is blocking `activity.log`.
+- **The activity log cannot be created:** Check that the chosen folder exists
+  or can be created, that you have permission to write there, and that the
+  log path is outside the program folder.
 - **Pictures do not appear:** Install the requirements with
   `python -m pip install -r requirements.txt`, then restart the program.
 - **Settings will not save:** Check that all number boxes contain whole

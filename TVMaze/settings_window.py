@@ -61,6 +61,11 @@ class SettingsWindow:
                 "request_timeout_seconds",
                 str(self.current_settings.request_timeout_seconds),
             ),
+            (
+                "Activity log file (full path)",
+                "activity_log_path",
+                self.current_settings.activity_log_path,
+            ),
         ]
 
         for row_number, (label_text, setting_name, setting_value) in enumerate(
@@ -175,6 +180,7 @@ class SettingsWindow:
             request_timeout_seconds=int(
                 self.setting_boxes["request_timeout_seconds"].get()
             ),
+            activity_log_path=self.setting_boxes["activity_log_path"].get().strip(),
             selected_show_fields=tuple(
                 field_name
                 for field_name, checked in self.field_checks.items()
@@ -186,7 +192,6 @@ class SettingsWindow:
         """Validate and save the settings, then tell the main window."""
         try:
             new_settings = self.make_settings_from_form()
-            save_settings(new_settings)
         except (ValueError, SettingsError) as error:
             messagebox.showerror(
                 "Settings not saved",
@@ -195,5 +200,35 @@ class SettingsWindow:
             )
             return
 
-        self.settings_saved(new_settings)
+        try:
+            self.settings_saved(new_settings)
+        except OSError as error:
+            messagebox.showerror(
+                "Activity log could not be started",
+                f"The program could not use that log location: {error}",
+                parent=self.window,
+            )
+            return
+
+        try:
+            save_settings(new_settings)
+        except SettingsError as error:
+            try:
+                self.settings_saved(self.current_settings)
+            except OSError as restore_error:
+                messagebox.showerror(
+                    "Settings not saved",
+                    f"{error}\nThe old log location could not be restored: "
+                    f"{restore_error}",
+                    parent=self.window,
+                )
+                return
+            messagebox.showerror(
+                "Settings not saved",
+                str(error),
+                parent=self.window,
+            )
+            return
+
+        self.current_settings = new_settings
         self.window.destroy()

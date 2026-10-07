@@ -30,7 +30,7 @@ FIELD_LABELS = {
 }
 
 
-class SummaryTextParser(HTMLParser):
+class SummaryTextReader(HTMLParser):
     """Collect readable text from an HTML summary."""
 
     def __init__(self) -> None:
@@ -71,10 +71,10 @@ def read_text(input_value: object, replacement: str = NOT_AVAILABLE) -> str:
 
 def remove_html_tags(summary: str) -> str:
     """Remove HTML tags and extra spaces from a program summary."""
-    parser = SummaryTextParser()
-    parser.feed(summary)
-    parser.close()
-    return " ".join("".join(parser.summary_words).split())
+    summary_reader = SummaryTextReader()
+    summary_reader.feed(summary)
+    summary_reader.close()
+    return " ".join("".join(summary_reader.summary_words).split())
 
 
 def make_english_label(field_name: str) -> str:

@@ -119,6 +119,7 @@ class ProgramFinderWindow:
 
     def apply_settings(self, new_settings: AppSettings) -> None:
         """Use the saved settings and update the main window."""
+        start_activity_log(new_settings.activity_log_path)
         self.settings = new_settings
         self.set_window_size()
         self.status_message.set("Settings saved.")
@@ -209,7 +210,8 @@ def start_program() -> None:
     """Load saved settings and open the TVMaze program window."""
     window = tk.Tk()
     try:
-        start_activity_log()
+        settings = load_settings()
+        start_activity_log(settings.activity_log_path)
     except OSError as error:
         messagebox.showerror(
             "Activity log could not be started",
@@ -219,8 +221,6 @@ def start_program() -> None:
         window.destroy()
         return
 
-    try:
-        settings = load_settings()
     except SettingsError as error:
         messagebox.showerror("Settings could not be loaded", str(error), parent=window)
         window.destroy()

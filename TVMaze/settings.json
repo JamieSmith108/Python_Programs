@@ -6,6 +6,7 @@
     "minimum_window_height": 420,
     "tvmaze_api_url": "https://api.tvmaze.com/singlesearch/shows",
     "request_timeout_seconds": 10,
+    "activity_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\activity.log",
     "selected_show_fields": [
         "url",
         "name",

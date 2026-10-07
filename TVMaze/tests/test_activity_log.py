@@ -63,12 +63,12 @@ class ActivityLogTests(unittest.TestCase):
                 "https://api.tvmaze.com/shows?q=Example",
                 "program details",
                 10,
-                "search-correlation-123",
+                "search-reference-123",
             )
 
         notes = self.read_activity_notes()
         self.assertEqual(response_body, b'{"name":"Hi"}')
-        self.assertIn("search-correlation-123", notes)
+        self.assertIn("search-reference-123", notes)
         self.assertIn("HTTP status 200", notes)
         self.assertIn("server-request-123", notes)
         self.assertIn("content-type: application/json", notes)
@@ -93,7 +93,7 @@ class ActivityLogTests(unittest.TestCase):
                     "https://api.tvmaze.com/shows?q=Example",
                     "program details",
                     10,
-                    "search-correlation-456",
+                    "search-reference-456",
                 )
 
         notes = self.read_activity_notes()
@@ -112,13 +112,22 @@ class ActivityLogTests(unittest.TestCase):
                     "https://api.tvmaze.com/shows?q=Example",
                     "program details",
                     10,
-                    "search-correlation-789",
+                    "search-reference-789",
                 )
 
         notes = self.read_activity_notes()
-        self.assertIn("search-correlation-789", notes)
+        self.assertIn("search-reference-789", notes)
         self.assertIn("OSError", notes)
         self.assertIn("Network is unreachable", notes)
+
+    def test_activity_log_is_created_at_the_chosen_location(self) -> None:
+        """The logger should create folders and a file at the chosen path."""
+        other_log = Path(self.temporary_folder.name) / "new folder" / "other.log"
+
+        start_activity_log(str(other_log))
+
+        self.assertTrue(other_log.is_file())
+        self.assertTrue(self.log_file.is_file())
 
 
 if __name__ == "__main__":

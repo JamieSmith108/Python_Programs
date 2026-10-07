@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from config import AppSettings, SettingsError, load_settings, save_settings
+from config import (
+    DEFAULT_ACTIVITY_LOG_FILE,
+    PROGRAM_FOLDER,
+    AppSettings,
+    SettingsError,
+    load_settings,
+    save_settings,
+)
 
 
 class SettingsTests(unittest.TestCase):
@@ -18,6 +25,40 @@ class SettingsTests(unittest.TestCase):
             settings = load_settings(settings_path)
 
         self.assertEqual(settings, AppSettings())
+
+    def test_default_activity_log_is_outside_the_program_folder(self) -> None:
+        """The default activity log should not be saved with the program files."""
+        self.assertFalse(
+            DEFAULT_ACTIVITY_LOG_FILE.resolve().is_relative_to(PROGRAM_FOLDER)
+        )
+
+    def test_saved_settings_remember_the_activity_log_location(self) -> None:
+        """The chosen log file path should be remembered after saving."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_path = Path(temporary_folder) / "settings.json"
+            log_path = Path(temporary_folder) / "logs" / "activity.log"
+            chosen_settings = AppSettings(activity_log_path=str(log_path))
+
+            save_settings(chosen_settings, settings_path)
+            loaded_settings = load_settings(settings_path)
+
+        self.assertEqual(loaded_settings.activity_log_path, str(log_path))
+
+    def test_saved_activity_log_path_must_be_full_path(self) -> None:
+        """The log location must be an absolute file path."""
+        settings = AppSettings(activity_log_path="activity.log")
+
+        with self.assertRaises(SettingsError):
+            save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
+    def test_saved_activity_log_path_must_be_outside_program_folder(self) -> None:
+        """The log cannot be placed beside the program source files."""
+        settings = AppSettings(
+            activity_log_path=str(PROGRAM_FOLDER / "activity.log")
+        )
+
+        with self.assertRaises(SettingsError):
+            save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
 
     def test_save_and_load_settings_remembers_changes(self) -> None:
         """Saved settings should be available after loading them again."""
