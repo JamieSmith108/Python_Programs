@@ -1,11 +1,15 @@
 """Build the main window and connect its buttons to the program."""
 
+from __future__ import annotations
+
 from threading import Thread
 import tkinter as tk
 from tkinter import messagebox, ttk
 from types import TracebackType
+from typing import TYPE_CHECKING
 
-from PIL import ImageTk
+if TYPE_CHECKING:
+    from PIL import ImageTk
 
 from application_logging import (
     log_application_error,
@@ -26,7 +30,7 @@ from config import (
     WELCOME_MESSAGE,
     load_settings,
 )
-from helpers import make_scrollable_frame, make_small_picture
+from helpers import make_photo_image, make_scrollable_frame
 from presentation import format_program_details
 from settings_window import SettingsWindow
 from tvmaze_api import (
@@ -159,6 +163,7 @@ class ProgramFinderWindow:
         try:
             program_choices = find_program_choices(program_name, self.settings)
         except (ProgramNotFoundError, TVMazeError) as error:
+            log_application_error("searching for a TV program", error)
             error_message = str(error)
             self.window.after(
                 0,
@@ -259,14 +264,13 @@ class ProgramFinderWindow:
         choice_image = None
         if program_choice.program.image_data is not None:
             try:
-                small_picture = make_small_picture(
+                choice_image = make_photo_image(
                     program_choice.program.image_data,
                     (90, 125),
                 )
-                choice_image = ImageTk.PhotoImage(small_picture)
                 self.choice_images.append(choice_image)
                 image_text = ""
-            except (OSError, ValueError) as error:
+            except (ImportError, OSError, ValueError) as error:
                 log_application_error("preparing a program choice picture", error)
 
         picture_label = ttk.Label(
@@ -328,9 +332,8 @@ class ProgramFinderWindow:
             return
 
         try:
-            picture = make_small_picture(picture_data, (220, 300))
-            self.poster_image = ImageTk.PhotoImage(picture)
-        except (OSError, ValueError) as error:
+            self.poster_image = make_photo_image(picture_data, (220, 300))
+        except (ImportError, OSError, ValueError) as error:
             log_application_error("displaying a downloaded show picture", error)
             self.poster_label.configure(
                 image="",
@@ -365,7 +368,10 @@ def start_program() -> None:
     except OSError as error:
         messagebox.showerror(
             "Application log could not be started",
-            f"The program could not create its application log: {error}",
+            "The program could not create its application log, so it cannot "
+            "save a record of this problem. Check that the log folder exists "
+            "and that you are allowed to write to it.\n\n"
+            f"Details: {error}",
             parent=window,
         )
         window.destroy()
@@ -377,7 +383,9 @@ def start_program() -> None:
         log_application_error("starting a chosen log file", error)
         messagebox.showerror(
             "A log file could not be started",
-            f"The program could not create one of its log files: {error}",
+            "The program could not open one of its log files. Check that the "
+            "folder exists and that you are allowed to write to it.\n\n"
+            f"Details: {error}",
             parent=window,
         )
         stop_api_activity_logging()

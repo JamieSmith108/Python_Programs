@@ -24,6 +24,7 @@ from config import (
     check_settings,
     load_settings,
 )
+from application_logging import log_application_error
 from helpers import (
     TVMAZE_API_PATH,
     TVMAZE_API_HOST,
@@ -282,7 +283,8 @@ def add_program_picture(
             settings.request_timeout_seconds,
             search_reference,
         )
-    except (HTTPError, URLError, TimeoutError, OSError, TVMazeError):
+    except (HTTPError, URLError, TimeoutError, OSError, TVMazeError) as error:
+        log_application_error("downloading a show picture", error)
         program.fields["image"] = "The show image could not be downloaded."
 
 

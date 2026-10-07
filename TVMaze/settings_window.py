@@ -16,6 +16,7 @@ from config import (
 from helpers import (
     log_file_matches_saved_checksum,
     make_scrollable_frame,
+    read_whole_number,
     show_read_only_text_window,
 )
 
@@ -153,14 +154,22 @@ class SettingsWindow:
                 log_file_path,
                 checksum_file_path,
             )
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             log_application_error(f"opening the {log_description}", error)
             messagebox.showerror(
                 "Log file could not be opened",
-                f"The {log_description} could not be opened:\n{error}",
+                f"The program could not read the {log_description}. "
+                "Check that the file exists and that you are allowed to read it.\n\n"
+                f"Details: {error}",
                 parent=self.window,
             )
             return
+
+        if outside_change_was_found:
+            log_application_issue(
+                f"The {log_description} does not match its saved checksum. "
+                "It may have been changed outside the program."
+            )
 
         show_read_only_text_window(
             self.window,
@@ -234,18 +243,27 @@ class SettingsWindow:
         """Read the boxes and checked boxes into one settings object."""
         return AppSettings(
             window_title=self.setting_boxes["window_title"].get().strip(),
-            window_width=int(self.setting_boxes["window_width"].get()),
-            window_height=int(self.setting_boxes["window_height"].get()),
-            minimum_window_width=int(
-                self.setting_boxes["minimum_window_width"].get()
+            window_width=read_whole_number(
+                "Window width",
+                self.setting_boxes["window_width"].get(),
             ),
-            minimum_window_height=int(
-                self.setting_boxes["minimum_window_height"].get()
+            window_height=read_whole_number(
+                "Window height",
+                self.setting_boxes["window_height"].get(),
+            ),
+            minimum_window_width=read_whole_number(
+                "Minimum window width",
+                self.setting_boxes["minimum_window_width"].get(),
+            ),
+            minimum_window_height=read_whole_number(
+                "Minimum window height",
+                self.setting_boxes["minimum_window_height"].get(),
+            ),
+            request_timeout_seconds=read_whole_number(
+                "Request timeout",
+                self.setting_boxes["request_timeout_seconds"].get(),
             ),
             tvmaze_api_url=self.setting_boxes["tvmaze_api_url"].get().strip(),
-            request_timeout_seconds=int(
-                self.setting_boxes["request_timeout_seconds"].get()
-            ),
             api_activity_log_path=self.setting_boxes[
                 "api_activity_log_path"
             ].get().strip(),
@@ -275,7 +293,7 @@ class SettingsWindow:
 
         try:
             self.settings_saved(new_settings)
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             log_application_error("starting the chosen log files", error)
             messagebox.showerror(
                 "A log file could not be started",

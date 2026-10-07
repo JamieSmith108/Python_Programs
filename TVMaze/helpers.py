@@ -1,5 +1,7 @@
 """Small reusable functions used by the TVMaze show finder."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping
 import hashlib
@@ -10,13 +12,17 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
-from PIL import Image
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import (
     HTTPRedirectHandler,
     Request,
     build_opener,
 )
+
+if TYPE_CHECKING:
+    from PIL import Image
+    from PIL import ImageTk
 
 
 NOT_AVAILABLE = "Not available"
@@ -92,6 +98,14 @@ def read_text(input_value: object, replacement: str = NOT_AVAILABLE) -> str:
     return replacement
 
 
+def read_whole_number(field_name: str, typed_value: str) -> int:
+    """Turn a settings box into a number and explain mistakes in plain words."""
+    try:
+        return int(typed_value.strip())
+    except ValueError as error:
+        raise ValueError(f"{field_name} must be a whole number.") from error
+
+
 def remove_html_tags(summary: str) -> str:
     """Remove HTML tags and extra spaces from a program summary."""
     summary_reader = SummaryTextReader()
@@ -156,9 +170,22 @@ def make_small_picture(
     maximum_size: tuple[int, int],
 ) -> Image.Image:
     """Make a smaller copy of a picture so it fits neatly in a window."""
+    from PIL import Image
+
     with Image.open(BytesIO(picture_data)) as original_picture:
         original_picture.thumbnail(maximum_size)
         return original_picture.copy()
+
+
+def make_photo_image(
+    picture_data: bytes,
+    maximum_size: tuple[int, int],
+) -> ImageTk.PhotoImage:
+    """Resize picture bytes and prepare the smaller picture for a Tk window."""
+    from PIL import ImageTk
+
+    small_picture = make_small_picture(picture_data, maximum_size)
+    return ImageTk.PhotoImage(small_picture)
 
 
 def make_scrollable_frame(

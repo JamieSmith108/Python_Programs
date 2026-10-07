@@ -190,6 +190,42 @@ class ProgramDetailsTests(unittest.TestCase):
         request.assert_called_once()
         self.assertIn("not from the TVMaze picture website", program.fields["image"])
 
+    def test_picture_download_problem_is_logged_and_other_details_remain(self) -> None:
+        """A broken picture should be logged without losing show details."""
+        api_reply = json.dumps(
+            {
+                "name": "Example Show",
+                "image": {
+                    "medium": (
+                        "https://static.tvmaze.com/uploads/images/"
+                        "medium_portrait/1/1.jpg"
+                    )
+                },
+            }
+        ).encode("utf-8")
+        with (
+            patch(
+                "tvmaze_api.request_tvmaze",
+                side_effect=[api_reply, OSError("Picture server unavailable")],
+            ),
+            patch("tvmaze_api.log_application_error") as log_problem,
+        ):
+            program = find_program_details(
+                "Example Show",
+                AppSettings(selected_show_fields=("name", "image")),
+            )
+
+        self.assertEqual(program.fields["name"], "Example Show")
+        self.assertEqual(
+            program.fields["image"],
+            "The show image could not be downloaded.",
+        )
+        log_problem.assert_called_once()
+        self.assertEqual(
+            log_problem.call_args.args[0],
+            "downloading a show picture",
+        )
+
     def test_same_name_results_include_years_and_picture_data(self) -> None:
         """Duplicate exact titles should become complete choices for the window."""
         search_reply = json.dumps(

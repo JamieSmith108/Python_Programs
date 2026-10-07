@@ -56,6 +56,7 @@ class SettingsLogViewerTests(unittest.TestCase):
             with (
                 patch("settings_window.show_read_only_text_window") as show_viewer,
                 patch("settings_window.messagebox.showerror") as show_error,
+                patch("settings_window.log_application_error") as log_problem,
             ):
                 settings_window.view_log_file(
                     "api_activity_log_path",
@@ -64,7 +65,30 @@ class SettingsLogViewerTests(unittest.TestCase):
 
         show_viewer.assert_not_called()
         show_error.assert_called_once()
-        self.assertIn("could not be opened", show_error.call_args.args[1])
+        self.assertIn("could not read", show_error.call_args.args[1])
+        log_problem.assert_called_once()
+
+    def test_unreadable_log_file_shows_a_clear_message(self) -> None:
+        """Text that is not readable should not crash the Settings window."""
+        with tempfile.TemporaryDirectory() as folder:
+            log_file_path = Path(folder) / "unreadable.log"
+            log_file_path.write_bytes(b"\xff")
+            settings_window = self.make_settings_window(log_file_path)
+
+            with (
+                patch("settings_window.show_read_only_text_window") as show_viewer,
+                patch("settings_window.messagebox.showerror") as show_error,
+                patch("settings_window.log_application_error") as log_problem,
+            ):
+                settings_window.view_log_file(
+                    "api_activity_log_path",
+                    "API issue log",
+                )
+
+        show_viewer.assert_not_called()
+        show_error.assert_called_once()
+        self.assertIn("could not read", show_error.call_args.args[1])
+        log_problem.assert_called_once()
 
     def test_changed_log_is_shown_with_an_outside_edit_warning(self) -> None:
         """Settings should detect a changed log and tell the read-only viewer."""
@@ -81,6 +105,7 @@ class SettingsLogViewerTests(unittest.TestCase):
                 patch(
                     "settings_window.show_read_only_text_window"
                 ) as show_read_only_window,
+                patch("settings_window.log_application_issue") as log_issue,
             ):
                 settings_window.view_log_file(
                     "api_activity_log_path",
@@ -93,6 +118,8 @@ class SettingsLogViewerTests(unittest.TestCase):
             "Changed log note.",
             True,
         )
+        log_issue.assert_called_once()
+        self.assertIn("changed outside", log_issue.call_args.args[0])
 
 
 if __name__ == "__main__":

@@ -169,9 +169,9 @@ and explains the problem without showing unusable information.
 - `tvmaze_api.py` asks TVMaze for matching shows, makes their answers readable,
   and finds the years each show ran.
 - `presentation.py` puts the chosen show details into a clear list.
-- `helpers.py` contains shared text-cleaning, label-making, picture-resizing,
-  scrollable-list, safe-address, and logger-cleanup functions used by other
-  files.
+- `helpers.py` contains shared text-cleaning, label-making, picture-resizing
+  and display, scrollable-list, safe-address, and logger-cleanup functions
+  used by other files.
 - `api_activity_logging.py` records API request and reply details to help find
   API problems.
 - `application_logging.py` records errors and problems that happen inside the
@@ -184,10 +184,12 @@ and explains the problem without showing unusable information.
 - `requirements.txt` lists the extra library needed to display pictures.
 
 The Settings list and the duplicate-program picker use the same shared
-scrollable-list helper. Both log files also use the same shared log-cleanup
-helper. Tests that read saved log notes also use one shared helper to flush
-and read the file. This keeps those repeated jobs in one place, so a future
-change can be made once and used by every part of the program.
+scrollable-list helper. The main results and duplicate-program picker also
+use one helper to resize pictures and prepare them for display. Both log files
+use the same shared log-cleanup helper. Tests that read saved log notes use
+one shared helper to flush and read the file. This keeps those repeated jobs
+in one place, so a future change can be made once and used by every part of
+the program.
 
 ## Read the API issue-tracking log
 
@@ -236,27 +238,37 @@ private.
 ## If something goes wrong
 
 - **The program cannot find a show:** Check the spelling and try again.
-- **The search cannot connect:** Check your internet connection and try again.
+- **The program cannot find or connect to a show:** A clear message appears in
+  the program. The problem and its technical details are also written to the
+  application log. Check the spelling or internet connection, then try again.
 - **The TVMaze address is rejected:** In Settings, use
   `https://api.tvmaze.com/singlesearch/shows`. Other websites are not allowed.
+  The problem is shown in the program and written to the application log.
 - **The API issue-tracking log cannot be created:** Check that the chosen
   folder exists or can be created, that you have permission to write there,
-  and that the log path is outside the program folder.
+  and that the log path is outside the program folder. The program shows a
+  message and records the problem in the application log.
 - **The application log cannot be created:** Check that its folder can be
   created, that you have permission to write there, and that its path is
-  outside the program folder.
+  outside the program folder. The program shows a message explaining that it
+  cannot save this problem to the application log until that log can be made.
 - **The log viewer warns about an outside change:** The log no longer matches
   its saved checksum. Keep a copy if you need to investigate it. The program
   still lets you read and copy the log, but it does not edit the old checksum
-  to hide the change.
+  to hide the change. The warning is also recorded in the application log.
 - **Pictures do not appear:** Install the requirements with
-  `python -m pip install -r requirements.txt`, then restart the program.
+  `python -m pip install -r requirements.txt`, then restart the program. The
+  rest of the show details stay available; picture download or display
+  problems are recorded in the application log.
 - **Settings will not save:** Check that all number boxes contain whole
   numbers, the window is not smaller than its minimum size, and at least one
-  show detail is checked.
+  show detail is checked. The program explains what needs fixing and records
+  the problem in the application log.
 - **The program says settings cannot be loaded:** Close the program and move
   `settings.json` to another folder. The next start will use the default
-  settings. You can then choose your settings again in the window.
+  settings. You can then choose your settings again in the window. The program
+  shows a message and records why it could not read the saved settings in the
+  default application log, if that log can be created.
 
 TVMaze supplies the show information and pictures. The data may be missing or
 out of date for some shows.

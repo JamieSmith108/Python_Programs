@@ -23,6 +23,7 @@ from helpers import (
     make_scrollable_frame,
     make_small_picture,
     open_trusted_tvmaze_request,
+    read_whole_number,
     read_text,
     remove_html_tags,
     save_log_checksum,
@@ -42,6 +43,11 @@ class HelperFunctionTests(unittest.TestCase):
     def test_read_text_uses_fallback_for_empty_value(self) -> None:
         """An empty value should use the helpful default message."""
         self.assertEqual(read_text("   "), "Not available")
+
+    def test_read_whole_number_explains_bad_settings_text(self) -> None:
+        """A bad number should name the box that needs to be fixed."""
+        with self.assertRaisesRegex(ValueError, "Window width must be a whole number"):
+            read_whole_number("Window width", "wide")
 
     def test_remove_html_tags_keeps_summary_words(self) -> None:
         """The summary should stay readable after its HTML is removed."""
