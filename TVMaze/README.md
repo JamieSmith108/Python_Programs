@@ -85,13 +85,17 @@ The Settings window also lets you change:
 - The TVMaze search address
 - How long the program waits for a reply, in seconds
 - The full path where the API issue-tracking log is saved
+- The full path where the application problem log is saved
 
 Choose **Save settings** to remember your choices. The window title and size
 change at once. The search address, wait time, and selected details are used
 for the next search. Enter a full file path for the API issue-tracking log,
 such as
 `C:\Users\YourName\AppData\Local\TVMazeShowFinder\API_activity_logging.log`.
-The log location must be outside the program folder.
+Enter a full file path for the application log, such as
+`C:\Users\YourName\AppData\Local\TVMazeShowFinder\application_log`. Both log
+files must be saved outside the program folder and must use different file
+paths.
 
 Your saved choices go into `settings.json` beside the program. You can change
 settings in the window; you do not need to edit this file by hand. The default
@@ -111,10 +115,12 @@ the program writes the clearer `api_activity_log_path` name.
   functions used by other files.
 - `api_activity_logging.py` records API request and reply details to help find
   API problems.
+- `application_logging.py` records errors and problems that happen inside the
+  program.
 - `config.py` holds default settings and the list of available show details.
 - `settings.json` stores the choices you saved in the Settings window.
-- The API issue-tracking log is saved at the location shown in Settings,
-  outside the program folder.
+- The API issue-tracking log and the application log are saved at the
+  locations shown in Settings, outside the program folder.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
 
@@ -142,6 +148,26 @@ For privacy, the log keeps only a short list of useful API response headers.
 It does not save cookies, authorization details, or the contents of TVMaze
 responses. The request address includes the name typed into the search box.
 
+## Read the application log
+
+The application log records problems inside the program, such as an unexpected
+error while the window is running, a problem displaying a downloaded picture,
+or trouble loading and saving settings. It includes the time, the kind of
+error, a plain-English explanation, and the place in the code where the error
+happened. This helps explain problems that are not caused by the TVMaze API.
+
+The log is saved at the full path shown in Settings. The default file is named
+`application_log` and is kept in
+`%LOCALAPPDATA%\TVMazeShowFinder\application_log`, outside the program folder.
+The file grows to about one megabyte before it is rotated; up to three older
+files are kept. The application log does not replace the API issue-tracking
+log: use the API log for web requests and replies, and the application log for
+problems inside the program.
+
+Both logs may include error details that help diagnose a problem. Do not share
+the files publicly if their contents include information you want to keep
+private.
+
 ## If something goes wrong
 
 - **The program cannot find a show:** Check the spelling and try again.
@@ -149,6 +175,9 @@ responses. The request address includes the name typed into the search box.
 - **The API issue-tracking log cannot be created:** Check that the chosen
   folder exists or can be created, that you have permission to write there,
   and that the log path is outside the program folder.
+- **The application log cannot be created:** Check that its folder can be
+  created, that you have permission to write there, and that its path is
+  outside the program folder.
 - **Pictures do not appear:** Install the requirements with
   `python -m pip install -r requirements.txt`, then restart the program.
 - **Settings will not save:** Check that all number boxes contain whole

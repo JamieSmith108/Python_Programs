@@ -1,19 +1,19 @@
 """Record TVMaze API request and reply details to help find API problems."""
 
 import logging
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import time
 from collections.abc import Mapping
 from uuid import uuid4
 
-from helpers import close_logger_handlers, make_one_line
+from helpers import (
+    close_logger_handlers,
+    make_one_line,
+    start_rotating_file_log,
+)
 
 
 API_ACTIVITY_LOGGER_NAME = "tvmaze_api_activity"
-MAX_API_ACTIVITY_LOG_SIZE_BYTES = 1_000_000
-NUMBER_OF_OLD_API_LOG_FILES_TO_KEEP = 3
-
 HELPFUL_API_REPLY_HEADERS = (
     "x-request-id",
     "x-correlation-id",
@@ -32,29 +32,11 @@ HELPFUL_API_REPLY_HEADERS = (
 
 def start_api_activity_logging(log_file_path: str | Path) -> None:
     """Start the file that records TVMaze API activity for troubleshooting."""
-    api_activity_log_file = Path(log_file_path).expanduser()
-    api_activity_logger = logging.getLogger(API_ACTIVITY_LOGGER_NAME)
-    api_activity_logger.setLevel(logging.INFO)
-    api_activity_logger.propagate = False
-
-    api_activity_log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_format = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler = RotatingFileHandler(
-        api_activity_log_file,
-        maxBytes=MAX_API_ACTIVITY_LOG_SIZE_BYTES,
-        backupCount=NUMBER_OF_OLD_API_LOG_FILES_TO_KEEP,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(log_format)
-    close_logger_handlers(api_activity_logger)
-    api_activity_logger.addHandler(file_handler)
-    api_activity_logger.info("TVMaze API issue tracking has started.")
-    api_activity_logger.info(
-        "API troubleshooting details are saved in: %s",
-        api_activity_log_file,
+    start_rotating_file_log(
+        API_ACTIVITY_LOGGER_NAME,
+        log_file_path,
+        "TVMaze API issue tracking has started.",
+        "API troubleshooting details are saved in:",
     )
 
 

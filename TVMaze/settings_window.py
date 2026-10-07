@@ -4,7 +4,14 @@ import tkinter as tk
 from collections.abc import Callable
 from tkinter import messagebox, ttk
 
-from config import AppSettings, SHOW_FIELD_OPTIONS, SettingsError, save_settings
+from application_logging import log_application_error, log_application_issue
+from config import (
+    AppSettings,
+    SHOW_FIELD_OPTIONS,
+    SettingsError,
+    check_settings,
+    save_settings,
+)
 
 
 class SettingsWindow:
@@ -65,6 +72,11 @@ class SettingsWindow:
                 "API issue log file (full path)",
                 "api_activity_log_path",
                 self.current_settings.api_activity_log_path,
+            ),
+            (
+                "Application log file (full path)",
+                "application_log_path",
+                self.current_settings.application_log_path,
             ),
         ]
 
@@ -183,6 +195,9 @@ class SettingsWindow:
             api_activity_log_path=self.setting_boxes[
                 "api_activity_log_path"
             ].get().strip(),
+            application_log_path=self.setting_boxes[
+                "application_log_path"
+            ].get().strip(),
             selected_show_fields=tuple(
                 field_name
                 for field_name, checked in self.field_checks.items()
@@ -194,7 +209,9 @@ class SettingsWindow:
         """Validate and save the settings, then tell the main window."""
         try:
             new_settings = self.make_settings_from_form()
+            check_settings(new_settings)
         except (ValueError, SettingsError) as error:
+            log_application_issue(f"The settings form could not be read: {error}")
             messagebox.showerror(
                 "Settings not saved",
                 str(error),
@@ -205,9 +222,10 @@ class SettingsWindow:
         try:
             self.settings_saved(new_settings)
         except OSError as error:
+            log_application_error("starting the chosen log files", error)
             messagebox.showerror(
-                "API issue log could not be started",
-                f"The program could not use that API log location: {error}",
+                "A log file could not be started",
+                f"The program could not use one of the chosen log locations: {error}",
                 parent=self.window,
             )
             return
@@ -215,12 +233,17 @@ class SettingsWindow:
         try:
             save_settings(new_settings)
         except SettingsError as error:
+            log_application_error("saving the settings file", error)
             try:
                 self.settings_saved(self.current_settings)
             except OSError as restore_error:
+                log_application_error(
+                    "restoring the old log file locations",
+                    restore_error,
+                )
                 messagebox.showerror(
                     "Settings not saved",
-                    f"{error}\nThe old API log location could not be restored: "
+                    f"{error}\nThe old log locations could not be restored: "
                     f"{restore_error}",
                     parent=self.window,
                 )

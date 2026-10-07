@@ -16,6 +16,7 @@ USER_DATA_FOLDER = Path(
     )
 ) / "TVMazeShowFinder"
 DEFAULT_API_ACTIVITY_LOG_FILE = USER_DATA_FOLDER / "API_activity_logging.log"
+DEFAULT_APPLICATION_LOG_FILE = USER_DATA_FOLDER / "application_log"
 
 # Every top-level show field returned by the TVMaze show endpoint
 SHOW_FIELD_OPTIONS = (
@@ -75,6 +76,7 @@ class AppSettings:
     request_timeout_seconds: int = 10
     selected_show_fields: tuple[str, ...] = DEFAULT_SELECTED_SHOW_FIELDS
     api_activity_log_path: str = str(DEFAULT_API_ACTIVITY_LOG_FILE)
+    application_log_path: str = str(DEFAULT_APPLICATION_LOG_FILE)
 
 
 class SettingsError(Exception):
@@ -145,18 +147,21 @@ def check_settings(settings: AppSettings) -> None:
         raise ValueError("The API troubleshooting log location must be text.")
     if not settings.api_activity_log_path.strip():
         raise ValueError("The API troubleshooting log location cannot be empty.")
+    if not isinstance(settings.application_log_path, str):
+        raise ValueError("The application log location must be text.")
+    if not settings.application_log_path.strip():
+        raise ValueError("The application log location cannot be empty.")
 
-    log_path = Path(settings.api_activity_log_path).expanduser()
-    if not log_path.is_absolute():
-        raise ValueError("The API troubleshooting log location must be a full path.")
-    try:
-        log_path.resolve().relative_to(PROGRAM_FOLDER)
-    except ValueError:
-        pass
-    else:
-        raise ValueError(
-            "Save the API troubleshooting log outside the program folder."
-        )
+    check_log_file_location(
+        settings.api_activity_log_path,
+        "API troubleshooting",
+    )
+    check_log_file_location(settings.application_log_path, "application")
+    if (
+        Path(settings.api_activity_log_path).expanduser().resolve()
+        == Path(settings.application_log_path).expanduser().resolve()
+    ):
+        raise ValueError("Choose a different file for each kind of log.")
 
     number_settings = {
         "Window width": settings.window_width,
@@ -191,6 +196,19 @@ def check_settings(settings: AppSettings) -> None:
         raise ValueError("One or more selected show fields are not recognized.")
     if len(set(settings.selected_show_fields)) != len(settings.selected_show_fields):
         raise ValueError("A show field cannot be selected more than once.")
+
+
+def check_log_file_location(log_file_path: str, log_purpose: str) -> None:
+    """Make sure a log uses a full path outside the program folder."""
+    log_path = Path(log_file_path).expanduser()
+    if not log_path.is_absolute():
+        raise ValueError(f"The {log_purpose} log location must be a full path.")
+    try:
+        log_path.resolve().relative_to(PROGRAM_FOLDER)
+    except ValueError:
+        return
+
+    raise ValueError(f"Save the {log_purpose} log outside the program folder.")
 
 
 # Text shown when TVMaze does not provide a value

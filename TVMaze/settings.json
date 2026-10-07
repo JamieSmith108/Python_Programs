@@ -7,6 +7,7 @@
     "tvmaze_api_url": "https://api.tvmaze.com/singlesearch/shows",
     "request_timeout_seconds": 10,
     "api_activity_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\API_activity_logging.log",
+    "application_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\application_log",
     "selected_show_fields": [
         "url",
         "name",

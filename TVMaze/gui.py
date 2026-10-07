@@ -4,9 +4,15 @@ from io import BytesIO
 from threading import Thread
 import tkinter as tk
 from tkinter import messagebox, ttk
+from types import TracebackType
 
 from PIL import Image, ImageTk
 
+from application_logging import (
+    log_application_error,
+    start_application_logging,
+    stop_application_logging,
+)
 from api_activity_logging import (
     start_api_activity_logging,
     stop_api_activity_logging,
@@ -122,6 +128,7 @@ class ProgramFinderWindow:
 
     def apply_settings(self, new_settings: AppSettings) -> None:
         """Use the saved settings and update the main window."""
+        start_application_logging(new_settings.application_log_path)
         start_api_activity_logging(new_settings.api_activity_log_path)
         self.settings = new_settings
         self.set_window_size()
@@ -153,6 +160,16 @@ class ProgramFinderWindow:
             self.window.after(
                 0,
                 lambda: self.finish_with_message(error_message),
+            )
+            return
+        except Exception as error:
+            log_application_error("looking up a TV program", error)
+            self.window.after(
+                0,
+                lambda: self.finish_with_message(
+                    "Something went wrong inside the program. "
+                    "Please check the application log."
+                ),
             )
             return
 
@@ -191,7 +208,8 @@ class ProgramFinderWindow:
             picture = Image.open(BytesIO(picture_data))
             picture.thumbnail((220, 300))
             self.poster_image = ImageTk.PhotoImage(picture)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
+            log_application_error("displaying a downloaded show picture", error)
             self.poster_label.configure(
                 image="",
                 text="The show image could not be displayed.",
@@ -212,23 +230,86 @@ class ProgramFinderWindow:
 def start_program() -> None:
     """Load saved settings and open the TVMaze program window."""
     window = tk.Tk()
+    window.report_callback_exception = report_window_callback_error
+
     try:
         settings = load_settings()
-        start_api_activity_logging(settings.api_activity_log_path)
+    except SettingsError as error:
+        log_startup_settings_problem(window, error)
+        return
+
+    try:
+        start_application_logging(settings.application_log_path)
     except OSError as error:
         messagebox.showerror(
-            "API issue log could not be started",
-            f"The program could not create its API troubleshooting log: {error}",
+            "Application log could not be started",
+            f"The program could not create its application log: {error}",
             parent=window,
         )
         window.destroy()
         return
 
-    except SettingsError as error:
-        messagebox.showerror("Settings could not be loaded", str(error), parent=window)
+    try:
+        start_api_activity_logging(settings.api_activity_log_path)
+    except OSError as error:
+        log_application_error("starting a chosen log file", error)
+        messagebox.showerror(
+            "A log file could not be started",
+            f"The program could not create one of its log files: {error}",
+            parent=window,
+        )
+        stop_api_activity_logging()
+        stop_application_logging()
         window.destroy()
         return
 
-    ProgramFinderWindow(window, settings)
-    window.mainloop()
-    stop_api_activity_logging()
+    try:
+        ProgramFinderWindow(window, settings)
+        window.mainloop()
+    except Exception as error:
+        log_application_error("running the main program window", error)
+        messagebox.showerror(
+            "The program ran into a problem",
+            "The program could not continue. Please check the application log.",
+            parent=window,
+        )
+    finally:
+        stop_api_activity_logging()
+        stop_application_logging()
+
+
+def log_startup_settings_problem(window: tk.Tk, problem: SettingsError) -> None:
+    """Use the default log to record why saved settings could not be loaded."""
+    try:
+        start_application_logging(AppSettings().application_log_path)
+        log_application_error("loading the saved settings", problem)
+    except OSError as log_problem:
+        messagebox.showerror(
+            "Settings could not be loaded",
+            f"{problem}\nThe application log could not be started: {log_problem}",
+            parent=window,
+        )
+    else:
+        messagebox.showerror(
+            "Settings could not be loaded",
+            f"{problem}\nThe problem was written to the default application log.",
+            parent=window,
+        )
+    finally:
+        stop_application_logging()
+        window.destroy()
+
+
+def report_window_callback_error(
+    error_type: type[BaseException],
+    error_value: BaseException,
+    error_traceback: TracebackType | None,
+) -> None:
+    """Write down an unexpected error raised while a window action runs."""
+    del error_type, error_traceback
+    log_application_error("running a window action", error_value)
+    messagebox.showerror(
+        "The program ran into a problem",
+        "An unexpected problem happened during a window action. "
+        "Details were saved in the application log.",
+    )

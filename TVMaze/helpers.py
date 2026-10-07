@@ -4,6 +4,8 @@ import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from config import NOT_AVAILABLE
 
@@ -126,6 +128,38 @@ def make_english_value(value: object) -> str:
 def make_one_line(message: str, character_limit: int = 1000) -> str:
     """Remove extra spaces and line breaks from a message."""
     return " ".join(message.split())[:character_limit]
+
+
+def start_rotating_file_log(
+    logger_name: str,
+    log_file_path: str | Path,
+    opening_message: str,
+    location_message: str,
+) -> None:
+    """Open a rotating log file and write a helpful start-up message."""
+    log_file = Path(log_file_path).expanduser()
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    log_format = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1_000_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(log_format)
+
+    close_logger_handlers(logger)
+    logger.addHandler(file_handler)
+    logger.info(opening_message)
+    logger.info("%s %s", location_message, log_file)
 
 
 def close_logger_handlers(logger: logging.Logger) -> None:
