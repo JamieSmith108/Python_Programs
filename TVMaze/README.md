@@ -97,6 +97,13 @@ Enter a full file path for the application log, such as
 files must be saved outside the program folder and must use different file
 paths.
 
+The Settings window has **View API issue log** and **View application log**
+buttons. Each button opens the file at the path currently shown in its setting
+box with the usual Windows program for reading that file. If the log has
+not been created yet, the program explains that it cannot open it. Save the
+settings with that log path first; the program creates the log when it starts
+using the saved location.
+
 Your saved choices go into `settings.json` beside the program. You can change
 settings in the window; you do not need to edit this file by hand. The default
 settings and the list of available TVMaze fields are in `config.py`. The

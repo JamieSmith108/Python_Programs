@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -128,6 +129,15 @@ def make_english_value(value: object) -> str:
 def make_one_line(message: str, character_limit: int = 1000) -> str:
     """Remove extra spaces and line breaks from a message."""
     return " ".join(message.split())[:character_limit]
+
+
+def open_file_in_default_program(file_path: str | Path) -> None:
+    """Open an existing file with its usual program in Windows."""
+    chosen_file = Path(file_path).expanduser().resolve()
+    if not chosen_file.is_file():
+        raise FileNotFoundError(f"The file does not exist: {chosen_file}")
+
+    os.startfile(str(chosen_file))
 
 
 def start_rotating_file_log(

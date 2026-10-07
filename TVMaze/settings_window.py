@@ -12,6 +12,7 @@ from config import (
     check_settings,
     save_settings,
 )
+from helpers import open_file_in_default_program
 
 
 class SettingsWindow:
@@ -43,7 +44,8 @@ class SettingsWindow:
         form.pack(fill="both", expand=True)
 
         self.add_setting_boxes(form)
-        self.add_field_checkboxes(form)
+        first_field_row = self.add_log_file_buttons(form)
+        self.add_field_checkboxes(form, first_field_row)
         self.add_form_buttons(form)
 
     def add_setting_boxes(self, form: ttk.Frame) -> None:
@@ -99,9 +101,62 @@ class SettingsWindow:
                 pady=4,
             )
 
-    def add_field_checkboxes(self, form: ttk.Frame) -> None:
+    def add_log_file_buttons(self, form: ttk.Frame) -> int:
+        """Add buttons that open each saved log file for reading."""
+        first_button_row = len(self.setting_boxes)
+        ttk.Label(form, text="Open a log file to read its notes:").grid(
+            row=first_button_row,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(10, 4),
+        )
+
+        button_row = ttk.Frame(form)
+        button_row.grid(
+            row=first_button_row + 1,
+            column=0,
+            columnspan=2,
+            sticky="w",
+        )
+        ttk.Button(
+            button_row,
+            text="View API issue log",
+            command=lambda: self.view_log_file(
+                "api_activity_log_path",
+                "API issue log",
+            ),
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            button_row,
+            text="View application log",
+            command=lambda: self.view_log_file(
+                "application_log_path",
+                "application log",
+            ),
+        ).pack(side="left")
+
+        return first_button_row + 2
+
+    def view_log_file(self, setting_name: str, log_description: str) -> None:
+        """Open the log path currently shown in Settings for the person to read."""
+        log_file_path = self.setting_boxes[setting_name].get().strip()
+        try:
+            open_file_in_default_program(log_file_path)
+        except OSError as error:
+            log_application_error(f"opening the {log_description}", error)
+            messagebox.showerror(
+                "Log file could not be opened",
+                f"The {log_description} could not be opened:\n{error}",
+                parent=self.window,
+            )
+
+    def add_field_checkboxes(
+        self,
+        form: ttk.Frame,
+        first_row: int,
+    ) -> None:
         """Add a scrollable list for choosing which show details to display."""
-        first_row = len(self.setting_boxes)
         ttk.Label(
             form,
             text="Choose the show details to display:",

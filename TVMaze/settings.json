@@ -6,17 +6,13 @@
     "minimum_window_height": 420,
     "tvmaze_api_url": "https://api.tvmaze.com/singlesearch/shows",
     "request_timeout_seconds": 10,
-    "api_activity_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\API_activity_logging.log",
-    "application_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\application_log",
     "selected_show_fields": [
-        "url",
         "name",
         "type",
         "language",
         "genres",
         "status",
         "runtime",
-        "averageRuntime",
         "premiered",
         "ended",
         "officialSite",
@@ -25,11 +21,11 @@
         "weight",
         "network",
         "webChannel",
-        "dvdCountry",
-        "externals",
         "image",
         "summary",
         "updated",
         "_links"
-    ]
+    ],
+    "api_activity_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\API_activity_logging.log",
+    "application_log_path": "C:\\Users\\Admin\\AppData\\Local\\TVMazeShowFinder\\application_log"
 }

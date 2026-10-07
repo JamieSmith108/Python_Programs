@@ -1,13 +1,17 @@
 """Check that the shared helper functions handle common values."""
 
+from pathlib import Path
+import tempfile
 import unittest
 import logging
+from unittest.mock import patch
 
 from helpers import (
     close_logger_handlers,
     make_english_label,
     make_english_value,
     make_one_line,
+    open_file_in_default_program,
     read_text,
     remove_html_tags,
 )
@@ -53,6 +57,25 @@ class HelperFunctionTests(unittest.TestCase):
     def test_make_one_line_removes_line_breaks_and_limits_length(self) -> None:
         """A long message should fit on one short line."""
         self.assertEqual(make_one_line("  first\n second  ", 10), "first seco")
+
+    def test_open_file_uses_the_computers_default_program(self) -> None:
+        """An existing file should open with the correct system command."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            log_file = Path(temporary_folder) / "application_log"
+            log_file.write_text("A test note.", encoding="utf-8")
+
+            with patch("helpers.os.startfile") as open_with_windows:
+                open_file_in_default_program(log_file)
+
+        open_with_windows.assert_called_once_with(str(log_file.resolve()))
+
+    def test_open_file_reports_when_the_log_file_is_missing(self) -> None:
+        """A missing log should raise a clear error instead of silently failing."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            missing_file = Path(temporary_folder) / "not-created-yet.log"
+
+            with self.assertRaisesRegex(FileNotFoundError, "does not exist"):
+                open_file_in_default_program(missing_file)
 
     def test_close_logger_handlers_removes_open_handlers(self) -> None:
         """A closed logger should no longer keep its handlers."""
