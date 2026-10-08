@@ -22,19 +22,39 @@ You do not need a TVMaze account or an API key.
    cd "C:\Users\Admin\Desktop\Python_Programs\TVMaze"
    ```
 
-3. Install the picture library:
+3. Make a private Python environment for this program:
+
+   ```powershell
+   python -m venv .venv
+   ```
+
+4. Turn on that environment:
+
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+   If PowerShell blocks the activation script, you can use the environment's
+   Python directly instead: `.venv\Scripts\python.exe`.
+
+5. Install the picture library inside the environment:
 
    ```powershell
    python -m pip install -r requirements.txt
    ```
 
-4. Start the program:
+6. Start the program:
 
    ```powershell
    python main.py
    ```
 
-5. Type a show name and choose **Find program**. You can also press Enter.
+7. Type a show name and choose **Find program**. You can also press Enter.
+
+The `.venv` folder belongs to this project and keeps its libraries separate
+from other Python programs on your computer. When the environment is turned
+on, `python main.py` uses this program's private Python and installed
+libraries.
 
 The search runs while the window stays open and responsive. If TVMaze finds
 more than one program with exactly the same name, a choice window appears.
@@ -264,11 +284,21 @@ private.
   numbers, the window is not smaller than its minimum size, and at least one
   show detail is checked. The program explains what needs fixing and records
   the problem in the application log.
+- **A search cannot start:** The program explains that the search could not be
+  started, records the technical problem in the application log, and makes the
+  search button available again.
 - **The program says settings cannot be loaded:** Close the program and move
   `settings.json` to another folder. The next start will use the default
-  settings. You can then choose your settings again in the window. The program
-  shows a message and records why it could not read the saved settings in the
-  default application log, if that log can be created.
+  settings. This can also help if the file contains unreadable text. You can
+  then choose your settings again in the window. The program shows a message
+  and records why it could not read the saved settings in the default
+  application log, if that log can be created.
+
+If the program hits an unexpected problem while a window action is running,
+it shows the error type and details and records the full problem in the
+application log. If a log cannot be started, the program explains that it
+cannot save the problem to that log and tells you to check its folder and
+permissions.
 
 TVMaze supplies the show information and pictures. The data may be missing or
 out of date for some shows.

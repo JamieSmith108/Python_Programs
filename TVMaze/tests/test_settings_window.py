@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from config import AppSettings
 from helpers import save_log_checksum
 from settings_window import SettingsWindow
 
@@ -120,6 +121,36 @@ class SettingsLogViewerTests(unittest.TestCase):
         )
         log_issue.assert_called_once()
         self.assertIn("changed outside", log_issue.call_args.args[0])
+
+    def test_failed_new_log_locations_restore_the_previous_settings(self) -> None:
+        """A log setup failure should restore the original active log locations."""
+        settings_window = SettingsWindow.__new__(SettingsWindow)
+        previous_settings = AppSettings()
+        new_settings = AppSettings(window_title="Another Finder")
+        settings_window.current_settings = previous_settings
+        settings_window.window = Mock()
+        settings_window.make_settings_from_form = Mock(return_value=new_settings)
+        settings_window.settings_saved = Mock(
+            side_effect=[OSError("The new log folder is not available."), None]
+        )
+
+        with (
+            patch("settings_window.check_settings"),
+            patch("settings_window.save_settings") as save_chosen_settings,
+            patch("settings_window.log_application_error") as log_problem,
+            patch("settings_window.messagebox.showerror") as show_error,
+        ):
+            settings_window.save()
+
+        self.assertEqual(
+            settings_window.settings_saved.call_args_list,
+            [unittest.mock.call(new_settings), unittest.mock.call(previous_settings)],
+        )
+        save_chosen_settings.assert_not_called()
+        log_problem.assert_called_once()
+        show_error.assert_called_once()
+        self.assertIn("previous log settings have been restored", show_error.call_args.args[1])
+        settings_window.window.destroy.assert_not_called()
 
 
 if __name__ == "__main__":

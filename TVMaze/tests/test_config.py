@@ -205,6 +205,15 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaises(SettingsError):
                 load_settings(settings_path)
 
+    def test_load_settings_reports_text_that_is_not_utf8(self) -> None:
+        """Unreadable settings text should become a clear settings error."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_path = Path(temporary_folder) / "settings.json"
+            settings_path.write_bytes(b"\xff")
+
+            with self.assertRaisesRegex(SettingsError, "Could not read settings"):
+                load_settings(settings_path)
+
     def test_save_settings_rejects_window_smaller_than_minimum(self) -> None:
         """A window cannot be smaller than the minimum size it must obey."""
         with tempfile.TemporaryDirectory() as temporary_folder:

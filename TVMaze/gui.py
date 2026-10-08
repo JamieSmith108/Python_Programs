@@ -152,11 +152,18 @@ class ProgramFinderWindow:
         self.search_button.configure(state="disabled")
         self.status_message.set(WAITING_MESSAGE)
         self.show_message(WAITING_MESSAGE)
-        Thread(
-            target=self.find_program,
-            args=(program_name,),
-            daemon=True,
-        ).start()
+        try:
+            Thread(
+                target=self.find_program,
+                args=(program_name,),
+                daemon=True,
+            ).start()
+        except (OSError, RuntimeError) as error:
+            log_application_error("starting a TV program search", error)
+            self.finish_with_message(
+                "The program could not start the search. "
+                "Please try again or check the application log."
+            )
 
     def find_program(self, program_name: str) -> None:
         """Ask TVMaze for a program and send the answer back to the window."""
@@ -170,7 +177,7 @@ class ProgramFinderWindow:
                 lambda: self.finish_with_message(error_message),
             )
             return
-        except Exception as error:
+        except (OSError, UnicodeError, ValueError) as error:
             log_application_error("looking up a TV program", error)
             self.window.after(
                 0,
@@ -365,7 +372,7 @@ def start_program() -> None:
 
     try:
         start_application_logging(settings.application_log_path)
-    except OSError as error:
+    except (OSError, UnicodeError, ValueError) as error:
         messagebox.showerror(
             "Application log could not be started",
             "The program could not create its application log, so it cannot "
@@ -379,7 +386,7 @@ def start_program() -> None:
 
     try:
         start_api_activity_logging(settings.api_activity_log_path)
-    except OSError as error:
+    except Exception as error:
         log_application_error("starting a chosen log file", error)
         messagebox.showerror(
             "A log file could not be started",
@@ -413,7 +420,7 @@ def log_startup_settings_problem(window: tk.Tk, problem: SettingsError) -> None:
     try:
         start_application_logging(AppSettings().application_log_path)
         log_application_error("loading the saved settings", problem)
-    except OSError as log_problem:
+    except (OSError, UnicodeError, ValueError) as log_problem:
         messagebox.showerror(
             "Settings could not be loaded",
             f"{problem}\nThe application log could not be started: {log_problem}",
@@ -441,5 +448,6 @@ def report_window_callback_error(
     messagebox.showerror(
         "The program ran into a problem",
         "An unexpected problem happened during a window action. "
-        "Details were saved in the application log.",
+        f"Problem details: {type(error_value).__name__}: {error_value}\n\n"
+        "The details were also saved in the application log.",
     )

@@ -154,7 +154,7 @@ class SettingsWindow:
                 log_file_path,
                 checksum_file_path,
             )
-        except (OSError, UnicodeError) as error:
+        except (OSError, UnicodeError, ValueError) as error:
             log_application_error(f"opening the {log_description}", error)
             messagebox.showerror(
                 "Log file could not be opened",
@@ -293,11 +293,41 @@ class SettingsWindow:
 
         try:
             self.settings_saved(new_settings)
-        except (OSError, UnicodeError) as error:
+        except (
+            OSError,
+            UnicodeError,
+            ValueError,
+            RuntimeError,
+            tk.TclError,
+        ) as error:
             log_application_error("starting the chosen log files", error)
+            try:
+                self.settings_saved(self.current_settings)
+            except (
+                OSError,
+                UnicodeError,
+                ValueError,
+                RuntimeError,
+                tk.TclError,
+            ) as restore_error:
+                log_application_error(
+                    "restoring the previous settings after a log problem",
+                    restore_error,
+                )
+                messagebox.showerror(
+                    "A log file could not be started",
+                    "The program could not start one of the chosen log files, "
+                    "and it could not restore the previous log settings.\n\n"
+                    f"Start problem: {error}\n"
+                    f"Restore problem: {restore_error}",
+                    parent=self.window,
+                )
+                return
             messagebox.showerror(
                 "A log file could not be started",
-                f"The program could not use one of the chosen log locations: {error}",
+                "The program could not use one of the chosen log locations. "
+                "The previous log settings have been restored.\n\n"
+                f"Details: {error}",
                 parent=self.window,
             )
             return
@@ -308,7 +338,13 @@ class SettingsWindow:
             log_application_error("saving the settings file", error)
             try:
                 self.settings_saved(self.current_settings)
-            except OSError as restore_error:
+            except (
+                OSError,
+                UnicodeError,
+                ValueError,
+                RuntimeError,
+                tk.TclError,
+            ) as restore_error:
                 log_application_error(
                     "restoring the old log file locations",
                     restore_error,

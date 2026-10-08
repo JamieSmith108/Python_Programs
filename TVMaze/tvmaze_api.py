@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from http.client import HTTPException
 from json import JSONDecodeError
 import time
 from urllib.error import HTTPError, URLError
@@ -211,7 +212,7 @@ def request_program_reply(
             f"TVMaze returned an error (HTTP {error.code}). "
             f"Search reference: {search_reference}."
         ) from error
-    except (URLError, TimeoutError, OSError) as error:
+    except (HTTPException, URLError, TimeoutError, OSError) as error:
         raise TVMazeError(
             "Could not connect to TVMaze. Check your internet connection and try again."
             f" Search reference: {search_reference}."
@@ -283,7 +284,14 @@ def add_program_picture(
             settings.request_timeout_seconds,
             search_reference,
         )
-    except (HTTPError, URLError, TimeoutError, OSError, TVMazeError) as error:
+    except (
+        HTTPError,
+        HTTPException,
+        URLError,
+        TimeoutError,
+        OSError,
+        TVMazeError,
+    ) as error:
         log_application_error("downloading a show picture", error)
         program.fields["image"] = "The show image could not be downloaded."
 
@@ -405,7 +413,7 @@ def request_tvmaze(
             error.reason,
         )
         raise
-    except (URLError, TimeoutError, OSError) as error:
+    except (HTTPException, URLError, TimeoutError, OSError) as error:
         log_api_connection_error(
             search_reference,
             request_part_name,

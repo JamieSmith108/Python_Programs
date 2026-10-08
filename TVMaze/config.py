@@ -90,12 +90,11 @@ class SettingsError(Exception):
 
 def load_settings(settings_file: Path = SETTINGS_FILE) -> AppSettings:
     """Load saved settings, or use the defaults when none have been saved."""
-    if not settings_file.exists():
-        return AppSettings()
-
     try:
+        if not settings_file.exists():
+            return AppSettings()
         saved_values = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise SettingsError(f"Could not read settings: {error}") from error
 
     if not isinstance(saved_values, dict):
@@ -136,7 +135,7 @@ def save_settings(settings: AppSettings, settings_file: Path = SETTINGS_FILE) ->
             json.dumps(asdict(settings), indent=4) + "\n",
             encoding="utf-8",
         )
-    except OSError as error:
+    except (OSError, UnicodeError) as error:
         raise SettingsError(f"Could not save settings: {error}") from error
 
 

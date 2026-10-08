@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from config import AppSettings
 from gui import ProgramFinderWindow
+from gui import report_window_callback_error
 from gui import start_program
 from tvmaze_api import TVMazeError
 from tvmaze_api import ProgramChoice, ProgramDetails
@@ -131,6 +132,52 @@ class ProgramChoiceWindowTests(unittest.TestCase):
         )
         self.assertIsNone(window.poster_image)
         log_problem.assert_called_once()
+
+    def test_search_start_problem_is_logged_and_search_button_is_reenabled(self) -> None:
+        """A thread-start failure should be shown and leave search available."""
+        window = ProgramFinderWindow.__new__(ProgramFinderWindow)
+        window.search_name = Mock(get=Mock(return_value="Example Show"))
+        window.search_button = Mock()
+        window.status_message = Mock()
+        window.show_message = Mock()
+
+        with (
+            patch("gui.Thread", side_effect=RuntimeError("Too many threads.")),
+            patch("gui.log_application_error") as log_problem,
+        ):
+            window.start_search()
+
+        log_problem.assert_called_once()
+        self.assertEqual(
+            log_problem.call_args.args[0],
+            "starting a TV program search",
+        )
+        window.search_button.configure.assert_called_with(state="normal")
+        window.show_message.assert_called_with(
+            "The program could not start the search. "
+            "Please try again or check the application log."
+        )
+
+    def test_unexpected_window_problem_is_logged_and_explained(self) -> None:
+        """Unexpected button problems should include useful details for the user."""
+        window_problem = RuntimeError("The results window is no longer available.")
+
+        with (
+            patch("gui.log_application_error") as log_problem,
+            patch("gui.messagebox.showerror") as show_error,
+        ):
+            report_window_callback_error(
+                RuntimeError,
+                window_problem,
+                None,
+            )
+
+        log_problem.assert_called_once_with(
+            "running a window action",
+            window_problem,
+        )
+        self.assertIn("RuntimeError", show_error.call_args.args[1])
+        self.assertIn(str(window_problem), show_error.call_args.args[1])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Check that API troubleshooting details are recorded clearly and safely."""
 
 from email.message import Message
+from http.client import IncompleteRead
 from pathlib import Path
 import tempfile
 import unittest
@@ -143,6 +144,24 @@ class APIActivityLoggingTests(unittest.TestCase):
         self.assertIn("search-reference-789", notes)
         self.assertIn("OSError", notes)
         self.assertIn("Network is unreachable", notes)
+
+    def test_incomplete_http_reply_is_logged_as_an_api_connection_problem(self) -> None:
+        """A reply cut short by the server should be recorded in the API log."""
+        with patch(
+            "tvmaze_api.open_trusted_tvmaze_request",
+            side_effect=IncompleteRead(b'{"name":', 4),
+        ):
+            with self.assertRaises(IncompleteRead):
+                request_tvmaze(
+                    "https://api.tvmaze.com/singlesearch/shows?q=Example",
+                    "program details",
+                    10,
+                    "incomplete-reply-reference",
+                )
+
+        notes = self.read_activity_notes()
+        self.assertIn("incomplete-reply-reference", notes)
+        self.assertIn("IncompleteRead", notes)
 
     def test_request_to_an_unapproved_website_is_stopped(self) -> None:
         """A request must be rejected before a connection is opened."""

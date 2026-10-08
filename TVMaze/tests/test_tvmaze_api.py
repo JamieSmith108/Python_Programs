@@ -2,6 +2,7 @@
 
 import unittest
 import json
+from http.client import IncompleteRead
 from unittest.mock import patch
 
 from config import AppSettings
@@ -225,6 +226,15 @@ class ProgramDetailsTests(unittest.TestCase):
             log_problem.call_args.args[0],
             "downloading a show picture",
         )
+
+    def test_incomplete_reply_becomes_a_clear_search_error(self) -> None:
+        """A cut-off server reply should become the usual readable API error."""
+        with patch(
+            "tvmaze_api.request_tvmaze",
+            side_effect=IncompleteRead(b'{"name":', 4),
+        ):
+            with self.assertRaisesRegex(TVMazeError, "Could not connect to TVMaze"):
+                find_program_details("Example Show", AppSettings())
 
     def test_same_name_results_include_years_and_picture_data(self) -> None:
         """Duplicate exact titles should become complete choices for the window."""
