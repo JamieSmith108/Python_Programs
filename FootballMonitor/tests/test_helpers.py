@@ -3,11 +3,20 @@
 from email.message import Message
 from io import BytesIO
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from helpers import FootballDataError, get_espn_image, get_espn_json
+from helpers import (
+    FootballDataError,
+    get_espn_image,
+    get_espn_json,
+    get_optional_espn_image,
+    make_espn_api_address,
+    update_json_settings_file,
+)
 
 
 class FakeJsonResponse:
@@ -36,6 +45,96 @@ class FakeJsonResponse:
 
 class FootballHelperTests(unittest.TestCase):
     """Check the network helper accepts safe JSON and rejects unsafe inputs."""
+
+    def test_json_settings_helper_updates_values_without_losing_old_values(self) -> None:
+        """Change selected settings while keeping unrelated saved choices."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_file = Path(temporary_folder) / "settings.json"
+            settings_file.write_text(
+                json.dumps(
+                    {
+                        "application_log": "old-log.txt",
+                        "selected_leagues": ["English Premier League"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            update_json_settings_file(
+                settings_file,
+                {"application_log": "new-log.txt"},
+            )
+
+            saved_settings = json.loads(settings_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(saved_settings["application_log"], "new-log.txt")
+        self.assertEqual(
+            saved_settings["selected_leagues"],
+            ["English Premier League"],
+        )
+
+    def test_json_settings_helper_rejects_a_non_object_file(self) -> None:
+        """Explain that settings must be saved as a JSON object."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_file = Path(temporary_folder) / "settings.json"
+            settings_file.write_text('["not", "an", "object"]', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "JSON object"):
+                update_json_settings_file(settings_file, {"new_choice": True})
+
+    def test_espn_address_helper_builds_an_encoded_league_request(self) -> None:
+        """Create a safe-looking request address with properly encoded options."""
+        request_address = make_espn_api_address(
+            "https://site.api.espn.com/apis/v2/sports/soccer",
+            "eng.1",
+            "/standings",
+            {"season": "2026-27"},
+        )
+
+        self.assertEqual(
+            request_address,
+            "https://site.api.espn.com/apis/v2/sports/soccer/"
+            "eng.1/standings?season=2026-27",
+        )
+
+    def test_optional_image_problem_is_logged_and_returns_no_badge(self) -> None:
+        """Let match or table results continue if an optional badge is missing."""
+        with (
+            patch(
+                "helpers.get_espn_image",
+                side_effect=FootballDataError("The image could not be loaded."),
+            ),
+            patch("helpers.log_application_error") as log_problem,
+        ):
+            image_bytes = get_optional_espn_image(
+                "https://a.espncdn.com/team.png",
+                "loading a team badge",
+                "The match details are still available.",
+            )
+
+        self.assertIsNone(image_bytes)
+        logged_arguments = log_problem.call_args.args
+        self.assertEqual(
+            logged_arguments[:3],
+            (
+                "loading a team badge",
+                "The image could not be loaded.",
+                "The match details are still available.",
+            ),
+        )
+        self.assertIsInstance(logged_arguments[3], FootballDataError)
+
+    def test_optional_image_returns_the_downloaded_badge(self) -> None:
+        """Return the picture when ESPN provides the optional badge."""
+        badge_bytes = b"test badge image"
+        with patch("helpers.get_espn_image", return_value=badge_bytes):
+            loaded_image = get_optional_espn_image(
+                "https://a.espncdn.com/team.png",
+                "loading a team badge",
+                "The match details are still available.",
+            )
+
+        self.assertEqual(loaded_image, badge_bytes)
 
     def test_safe_espn_address_returns_json(self) -> None:
         """A reply from ESPN's secure API should be returned as a dictionary."""

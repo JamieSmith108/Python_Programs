@@ -31,7 +31,10 @@ from football_api import (
     get_league_table,
     get_matches,
 )
-from helpers import FootballDataError, get_espn_image
+from helpers import (
+    FootballDataError,
+    get_optional_espn_image,
+)
 from logging_service import (
     LogName,
     check_log_file_integrity,
@@ -266,17 +269,7 @@ class FootballMonitorWindow:
     ) -> tuple[list[FootballTeam], bytes | None, str]:
         """Load teams, badges, and table information for the selected league."""
         teams = get_football_teams(league_name)
-        try:
-            league_badge_bytes = get_league_badge_bytes(league_name)
-        except (FootballDataError, OSError, ValueError) as error:
-            log_application_error(
-                "loading the selected league badge",
-                str(error),
-                "Check the internet connection. The league and teams can still "
-                "be used without a badge.",
-                error,
-            )
-            league_badge_bytes = None
+        league_badge_bytes = get_league_badge_bytes(league_name)
         try:
             table_rows = get_league_table(league_name)
             table_report = format_league_table(league_name, table_rows)
@@ -396,17 +389,12 @@ class FootballMonitorWindow:
             return matches, checked_at, None
         if not selected_team.badge_url:
             return matches, checked_at, None
-        try:
-            badge_bytes = get_espn_image(selected_team.badge_url)
-        except (FootballDataError, OSError, ValueError) as error:
-            log_application_error(
-                "loading the selected team badge",
-                str(error),
-                "Check the internet connection. The match information can still "
-                "be used without the badge.",
-                error,
-            )
-            badge_bytes = None
+        badge_bytes = get_optional_espn_image(
+            selected_team.badge_url,
+            "loading the selected team badge",
+            "Check the internet connection. The match information can still "
+            "be used without the badge.",
+        )
         return matches, checked_at, badge_bytes
 
     def show_badge(self, badge_bytes: bytes | None, badge_kind: str) -> None:

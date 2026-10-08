@@ -205,7 +205,7 @@ class FootballApiTests(unittest.TestCase):
         checked_at = "2026-10-08 14:00 BST"
         with (
             patch("gui.get_matches", return_value=(match_list, checked_at)),
-            patch("gui.get_espn_image") as get_image,
+            patch("gui.get_optional_espn_image") as get_image,
         ):
             result = window.load_match_details(
                 "English Premier League",
@@ -394,7 +394,7 @@ class FootballApiTests(unittest.TestCase):
                 return_value=scoreboard_reply,
             ) as get_reply,
             patch(
-                "football_api.get_espn_image",
+                "football_api.get_optional_espn_image",
                 return_value=badge_bytes,
             ) as get_image,
         ):
@@ -403,7 +403,10 @@ class FootballApiTests(unittest.TestCase):
         self.assertEqual(league_badge, badge_bytes)
         self.assertIn("/eng.1/scoreboard?", get_reply.call_args.args[0])
         get_image.assert_called_once_with(
-            "https://a.espncdn.com/league-default.png"
+            "https://a.espncdn.com/league-default.png",
+            "loading the selected league badge",
+            "Check the internet connection. The league and teams can still "
+            "be used without a badge.",
         )
 
     def test_league_table_is_read_from_espn_standings(self) -> None:

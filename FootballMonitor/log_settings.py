@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
-import tempfile
 
 from config import DEFAULT_SELECTED_LEAGUES, FOOTBALL_LEAGUES
+from helpers import update_json_settings_file
 
 
 APP_DATA_FOLDER_NAME = "FootballMonitor"
@@ -97,9 +97,7 @@ def get_saved_path(saved_values: dict[str, object], setting_name: str) -> str:
 def save_log_settings(settings: LogFileSettings) -> None:
     """Save the log file paths outside the program's source code folder."""
     validate_log_settings(settings)
-    saved_values = read_settings_document()
-    saved_values.update(make_log_settings_values(settings))
-    save_settings_document(saved_values, "log settings")
+    save_settings_values(make_log_settings_values(settings), "log settings")
 
 
 def load_selected_leagues() -> list[str]:
@@ -137,14 +135,13 @@ def save_application_settings(
         raise SettingsError(
             "Only leagues from the available league list can be selected."
         )
-    saved_values = read_settings_document()
-    saved_values.update(make_log_settings_values(log_settings))
-    saved_values["selected_leagues"] = [
+    settings_values = make_log_settings_values(log_settings)
+    settings_values["selected_leagues"] = [
         league_name
         for league_name in FOOTBALL_LEAGUES
         if league_name in selected_leagues
     ]
-    save_settings_document(saved_values, "application settings")
+    save_settings_values(settings_values, "application settings")
 
 
 def make_log_settings_values(
@@ -183,33 +180,21 @@ def read_settings_document() -> dict[str, object]:
     return saved_values
 
 
-def save_settings_document(
-    saved_values: dict[str, object],
+def save_settings_values(
+    new_values: dict[str, object],
     settings_description: str,
 ) -> None:
-    """Safely replace the settings file without losing its other choices."""
+    """Save setting changes and explain read or write problems clearly."""
     settings_file = get_settings_file_path()
-    temporary_file_path: Path | None = None
     try:
-        settings_file.parent.mkdir(parents=True, exist_ok=True)
-        settings_json = json.dumps(saved_values, indent=2)
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=settings_file.parent,
-            delete=False,
-        ) as temporary_file:
-            temporary_file.write(settings_json)
-            temporary_file_path = Path(temporary_file.name)
-        temporary_file_path.replace(settings_file)
+        update_json_settings_file(settings_file, new_values)
+    except ValueError as error:
+        raise SettingsError(str(error)) from error
     except OSError as error:
         raise SettingsError(
             f"The {settings_description} could not be saved. Check that this "
             f"account can write to {settings_file.parent}."
         ) from error
-    finally:
-        if temporary_file_path is not None and temporary_file_path.exists():
-            temporary_file_path.unlink()
 
 
 def validate_log_settings(settings: LogFileSettings) -> None:

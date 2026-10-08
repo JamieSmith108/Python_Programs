@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import urlencode
 
 from config import (
     ALL_TEAMS_LABEL,
@@ -13,8 +12,9 @@ from config import (
 from helpers import (
     FootballDataError,
     clean_words,
-    get_espn_image,
     get_espn_json,
+    get_optional_espn_image,
+    make_espn_api_address,
 )
 
 
@@ -60,9 +60,11 @@ class FootballStanding:
 def get_football_teams(league_name: str) -> list[FootballTeam]:
     """Get the current team list for one of the supported ESPN leagues."""
     league_code = get_league_code(league_name)
-    request_address = (
-        f"{ESPN_API_ROOT}/{league_code}/teams?"
-        f"{urlencode({'limit': 1000})}"
+    request_address = make_espn_api_address(
+        ESPN_API_ROOT,
+        league_code,
+        "teams",
+        {"limit": 1000},
     )
     reply = get_espn_json(request_address)
     sports = reply.get("sports")
@@ -90,9 +92,11 @@ def get_football_teams(league_name: str) -> list[FootballTeam]:
                     teams.append(team)
 
     if not teams:
-        scoreboard_address = (
-            f"{ESPN_API_ROOT}/{league_code}/scoreboard?"
-            f"{urlencode({'limit': 100})}"
+        scoreboard_address = make_espn_api_address(
+            ESPN_API_ROOT,
+            league_code,
+            "scoreboard",
+            {"limit": 100},
         )
         scoreboard_reply = get_espn_json(scoreboard_address)
         teams = get_teams_from_scoreboard(scoreboard_reply)
@@ -135,9 +139,11 @@ def get_teams_from_scoreboard(reply: dict[str, object]) -> list[FootballTeam]:
 def get_league_badge_bytes(league_name: str) -> bytes | None:
     """Download the selected league badge that ESPN lists on its scoreboard."""
     league_code = get_league_code(league_name)
-    request_address = (
-        f"{ESPN_API_ROOT}/{league_code}/scoreboard?"
-        f"{urlencode({'limit': 1})}"
+    request_address = make_espn_api_address(
+        ESPN_API_ROOT,
+        league_code,
+        "scoreboard",
+        {"limit": 1},
     )
     reply = get_espn_json(request_address)
     leagues = reply.get("leagues")
@@ -149,13 +155,22 @@ def get_league_badge_bytes(league_name: str) -> bytes | None:
     logo_url = get_default_logo_url(league_data.get("logos"))
     if not logo_url:
         return None
-    return get_espn_image(logo_url)
+    return get_optional_espn_image(
+        logo_url,
+        "loading the selected league badge",
+        "Check the internet connection. The league and teams can still be "
+        "used without a badge.",
+    )
 
 
 def get_league_table(league_name: str) -> list[FootballStanding]:
     """Get the current league table from ESPN when that league provides one."""
     league_code = get_league_code(league_name)
-    request_address = f"{ESPN_STANDINGS_API_ROOT}/{league_code}/standings"
+    request_address = make_espn_api_address(
+        ESPN_STANDINGS_API_ROOT,
+        league_code,
+        "standings",
+    )
     reply = get_espn_json(request_address)
     grouped_entries = find_standing_groups(reply)
     table_rows: list[FootballStanding] = []
@@ -347,15 +362,19 @@ def get_matches(
     """Get current league fixtures or a selected team's season schedule."""
     league_code = get_league_code(league_name)
     if team_id is None:
-        request_address = (
-            f"{ESPN_API_ROOT}/{league_code}/scoreboard?"
-            f"{urlencode({'limit': 100})}"
+        request_address = make_espn_api_address(
+            ESPN_API_ROOT,
+            league_code,
+            "scoreboard",
+            {"limit": 100},
         )
     else:
         if not team_id.isdigit():
             raise FootballDataError("The selected team number is not valid.")
-        request_address = (
-            f"{ESPN_API_ROOT}/{league_code}/teams/{team_id}/schedule"
+        request_address = make_espn_api_address(
+            ESPN_API_ROOT,
+            league_code,
+            f"teams/{team_id}/schedule",
         )
 
     reply = get_espn_json(request_address)

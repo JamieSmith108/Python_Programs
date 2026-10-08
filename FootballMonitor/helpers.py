@@ -1,9 +1,11 @@
-"""Share safe web requests and readable match text across the program."""
+"""Share safe ESPN requests, request addresses, and simple text-cleaning tools."""
 
 import json
 from json import JSONDecodeError
+from pathlib import Path
+import tempfile
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
 
@@ -14,7 +16,6 @@ from config import (
     MAX_REPLY_SIZE_BYTES,
     REQUEST_TIMEOUT_SECONDS,
 )
-from logging_service import log_api_communication
 
 
 class FootballDataError(Exception):
@@ -40,30 +41,13 @@ class StopWebsiteRedirects(HTTPRedirectHandler):
 
 def get_espn_json(request_address: str) -> dict[str, object]:
     """Download a small JSON reply from ESPN's official data website."""
-    correlation_id = str(uuid4())
-    address_parts = urlsplit(request_address)
-    if (
-        address_parts.scheme != "https"
-        or address_parts.hostname != ESPN_API_HOST
-        or address_parts.port is not None
-        or address_parts.username is not None
-        or address_parts.password is not None
-    ):
-        log_api_communication(
-            "GET",
-            request_address,
-            "The request was rejected because the address was not approved.",
-            None,
-            correlation_id,
-        )
-        raise FootballDataError(
-            "The program stopped a web address that is not ESPN's approved "
-            "football data website."
-        )
+    from logging_service import log_api_communication
 
-    request = Request(
+    request, correlation_id = make_approved_espn_request(
         request_address,
-        headers={"User-Agent": "FootballMonitor/1.0"},
+        ESPN_API_HOST,
+        "GET",
+        "a web address that is not ESPN's approved football data website",
     )
     safe_opener = build_opener(StopWebsiteRedirects())
 
@@ -148,32 +132,15 @@ def get_espn_json(request_address: str) -> dict[str, object]:
 
 def get_espn_image(image_address: str) -> bytes:
     """Download a small badge image only from ESPN's image website."""
-    correlation_id = str(uuid4())
-    address_parts = urlsplit(image_address)
-    if (
-        address_parts.scheme != "https"
-        or address_parts.hostname != ESPN_IMAGE_HOST
-        or address_parts.port is not None
-        or address_parts.username is not None
-        or address_parts.password is not None
-    ):
-        log_api_communication(
-            "GET image",
-            image_address,
-            "The image request was rejected because the address was not approved.",
-            None,
-            correlation_id,
-        )
-        raise FootballDataError(
-            "The program stopped a badge address that is not ESPN's approved "
-            "image website."
-        )
+    from logging_service import log_api_communication
 
-    safe_opener = build_opener(StopWebsiteRedirects())
-    image_request = Request(
+    image_request, correlation_id = make_approved_espn_request(
         image_address,
-        headers={"User-Agent": "FootballMonitor/1.0"},
+        ESPN_IMAGE_HOST,
+        "GET image",
+        "a badge address that is not ESPN's approved image website",
     )
+    safe_opener = build_opener(StopWebsiteRedirects())
     try:
         with safe_opener.open(
             image_request,
@@ -225,6 +192,112 @@ def get_espn_image(image_address: str) -> bytes:
             "ESPN sent a badge image in a format the program cannot display."
         )
     return image_bytes
+
+
+def make_approved_espn_request(
+    request_address: str,
+    approved_host: str,
+    communication_type: str,
+    rejected_address_message: str,
+) -> tuple[Request, str]:
+    """Check one ESPN address and prepare its request with a unique reference."""
+    from logging_service import log_api_communication
+
+    correlation_id = str(uuid4())
+    address_parts = urlsplit(request_address)
+    if (
+        address_parts.scheme != "https"
+        or address_parts.hostname != approved_host
+        or address_parts.port is not None
+        or address_parts.username is not None
+        or address_parts.password is not None
+    ):
+        log_api_communication(
+            communication_type,
+            request_address,
+            f"The request was rejected because {rejected_address_message}.",
+            None,
+            correlation_id,
+        )
+        raise FootballDataError(
+            f"The program stopped {rejected_address_message}."
+        )
+
+    request = Request(
+        request_address,
+        headers={"User-Agent": "FootballMonitor/1.0"},
+    )
+    return request, correlation_id
+
+
+def update_json_settings_file(
+    settings_file: Path,
+    new_values: dict[str, object],
+) -> None:
+    """Update a JSON settings file safely while keeping its other saved values."""
+    saved_values: dict[str, object] = {}
+    if settings_file.exists():
+        try:
+            saved_document = json.loads(settings_file.read_text(encoding="utf-8"))
+        except (OSError, JSONDecodeError) as error:
+            raise ValueError(
+                f"The settings file could not be read: {settings_file}"
+            ) from error
+        if not isinstance(saved_document, dict):
+            raise ValueError(
+                f"The settings file must contain a JSON object: {settings_file}"
+            )
+        saved_values = saved_document
+    saved_values.update(new_values)
+
+    temporary_file_path: Path | None = None
+    try:
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=settings_file.parent,
+            delete=False,
+        ) as temporary_file:
+            temporary_file.write(json.dumps(saved_values, indent=2))
+            temporary_file_path = Path(temporary_file.name)
+        temporary_file_path.replace(settings_file)
+    finally:
+        if temporary_file_path is not None and temporary_file_path.exists():
+            temporary_file_path.unlink()
+
+
+def make_espn_api_address(
+    api_root: str,
+    league_code: str,
+    endpoint: str,
+    query_values: dict[str, str | int] | None = None,
+) -> str:
+    """Build one consistent ESPN address for a league and request type."""
+    request_address = f"{api_root}/{league_code}/{endpoint.lstrip('/')}"
+    if query_values:
+        request_address = f"{request_address}?{urlencode(query_values)}"
+    return request_address
+
+
+def get_optional_espn_image(
+    image_address: str,
+    activity_description: str,
+    recovery_advice: str,
+) -> bytes | None:
+    """Try to get an optional badge and log a clear reason if it is unavailable."""
+    from logging_service import log_application_error
+
+    try:
+        return get_espn_image(image_address)
+    except (FootballDataError, OSError, ValueError) as error:
+        log_application_error(
+            activity_description,
+            str(error),
+            recovery_advice,
+            error,
+        )
+        return None
 
 
 def clean_words(value: object, fallback: str = "Not available") -> str:

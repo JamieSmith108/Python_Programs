@@ -74,7 +74,8 @@ have no matches scheduled at the moment.
 - `main.py` starts the desktop window.
 - `gui.py` builds the window, choices, and match display.
 - `football_api.py` requests and reads league, team, and match information.
-- `helpers.py` contains shared safe web-request and text-cleaning functions.
+- `helpers.py` contains shared safe web-request, request-address, optional badge,
+  and text-cleaning functions.
 - `config.py` contains the supported league names and ESPN request limits.
 - `log_settings.py` stores and checks the paths chosen for the log files.
 - `logging_service.py` writes the logs and checks their SHA-256 checksums.
