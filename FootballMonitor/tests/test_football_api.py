@@ -6,11 +6,16 @@ from unittest.mock import Mock, patch
 from config import FOOTBALL_LEAGUES, LEAGUE_SELECTION_PROMPT
 from football_api import (
     FootballMatch,
+    FootballStanding,
+    find_standing_groups,
+    format_league_table,
     format_match_list,
     get_football_teams,
     get_league_badge_bytes,
     get_league_code,
+    get_league_table,
     get_matches,
+    make_standing_from_entry,
     make_match_from_event,
 )
 from helpers import FootballDataError
@@ -58,6 +63,117 @@ class FootballApiTests(unittest.TestCase):
             state="disabled",
         )
         self.assertEqual(window.team_ids_by_name, {})
+
+    def test_league_table_is_loaded_with_the_teams(self) -> None:
+        """The league table should be requested as part of league selection."""
+        window = object.__new__(FootballMonitorWindow)
+        teams = [Mock()]
+        badge = b"league badge"
+        table_rows = [
+            FootballStanding("", "1", "Arsenal", "1", "1", "0", "0",
+                             "2", "0", "2", "3")
+        ]
+
+        with (
+            patch("gui.get_football_teams", return_value=teams),
+            patch("gui.get_league_badge_bytes", return_value=badge),
+            patch("gui.get_league_table", return_value=table_rows) as get_table,
+        ):
+            result = window.load_league_selection_data("English Premier League")
+
+        self.assertEqual(result[0:2], (teams, badge))
+        self.assertIn("Arsenal", result[2])
+        get_table.assert_called_once_with("English Premier League")
+
+    def test_table_error_does_not_prevent_loading_teams(self) -> None:
+        """A missing ESPN table should not stop the team menu from working."""
+        window = object.__new__(FootballMonitorWindow)
+        teams = [Mock()]
+
+        with (
+            patch("gui.get_football_teams", return_value=teams),
+            patch("gui.get_league_badge_bytes", return_value=None),
+            patch(
+                "gui.get_league_table",
+                side_effect=FootballDataError("ESPN table is unavailable."),
+            ),
+            patch("gui.log_application_error") as log_error,
+        ):
+            loaded_teams, _, table_report = window.load_league_selection_data(
+                "English Premier League"
+            )
+
+        self.assertEqual(loaded_teams, teams)
+        self.assertIn("table information could not be loaded", table_report)
+        log_error.assert_called_once()
+
+    def test_loaded_league_table_is_shown_in_its_tab(self) -> None:
+        """The table report should be sent to the Table tab after loading."""
+        window = object.__new__(FootballMonitorWindow)
+        window.selected_league = Mock()
+        window.selected_league.get.return_value = "English Premier League"
+        window.team_ids_by_name = {}
+        window.teams_by_name = {}
+        window.team_menu = Mock()
+        window.show_badge = Mock()
+        window.show_table = Mock()
+        window.status_message = Mock()
+
+        with patch("gui.log_application_activity"):
+            window.finish_loading_teams(
+                "English Premier League",
+                [],
+                None,
+                "Current table report",
+            )
+
+        window.show_table.assert_called_once_with("Current table report")
+
+    def test_turning_off_the_selected_league_clears_its_team(self) -> None:
+        """Remove old team data when its league is no longer in the menu."""
+        window = object.__new__(FootballMonitorWindow)
+        window.selected_leagues = ["English Premier League"]
+        window.selected_league = Mock()
+        window.selected_league.get.return_value = "English Premier League"
+        window.selected_team = Mock()
+        window.request_number = 2
+        window.team_ids_by_name = {"Arsenal": "359"}
+        window.teams_by_name = {"Arsenal": Mock()}
+        window.league_menu = Mock()
+        window.team_menu = Mock()
+        window.status_message = Mock()
+        window.show_badge = Mock()
+        window.show_results = Mock()
+        window.show_table = Mock()
+
+        window.apply_selected_leagues(["Spanish LaLiga"])
+
+        self.assertEqual(window.selected_leagues, ["Spanish LaLiga"])
+        window.selected_league.set.assert_called_once_with(LEAGUE_SELECTION_PROMPT)
+        self.assertEqual(window.request_number, 3)
+        self.assertEqual(window.team_ids_by_name, {})
+        self.assertEqual(window.teams_by_name, {})
+        window.team_menu.configure.assert_called_once_with(
+            values=["All teams in this league"],
+            state="disabled",
+        )
+
+    def test_league_stays_selected_when_it_remains_enabled(self) -> None:
+        """Keep current results if the selected league stays checked."""
+        window = object.__new__(FootballMonitorWindow)
+        window.selected_leagues = ["English Premier League"]
+        window.selected_league = Mock()
+        window.selected_league.get.return_value = "English Premier League"
+        window.league_menu = Mock()
+        window.request_number = 2
+        window.show_badge = Mock()
+
+        window.apply_selected_leagues(
+            ["English Premier League", "Spanish LaLiga"]
+        )
+
+        self.assertEqual(window.request_number, 2)
+        window.selected_league.set.assert_not_called()
 
     def test_choosing_a_team_starts_loading_its_matches(self) -> None:
         """Selecting a team should request matches without a refresh button."""
@@ -188,6 +304,74 @@ class FootballApiTests(unittest.TestCase):
             "https://a.espncdn.com/arsenal.png",
         )
 
+    def test_team_choices_use_scoreboard_when_espn_team_list_is_empty(self) -> None:
+        """Use real match participants when ESPN has no Irish team list."""
+        teams_reply = {
+            "sports": [
+                {"leagues": [{"teams": []}]}
+            ]
+        }
+        scoreboard_reply = {
+            "events": [
+                {
+                    "competitions": [
+                        {
+                            "competitors": [
+                                {
+                                    "team": {
+                                        "displayName": "Derry City",
+                                        "id": "600",
+                                    }
+                                },
+                                {
+                                    "team": {
+                                        "displayName": "Bohemians",
+                                        "id": "601",
+                                    }
+                                },
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "competitions": [
+                        {
+                            "competitors": [
+                                {
+                                    "team": {
+                                        "displayName": "Derry City",
+                                        "id": "600",
+                                    }
+                                },
+                                {
+                                    "team": {
+                                        "displayName": "Shamrock Rovers",
+                                        "id": "602",
+                                    }
+                                },
+                            ]
+                        }
+                    ]
+                },
+            ]
+        }
+
+        with patch(
+            "football_api.get_espn_json",
+            side_effect=[teams_reply, scoreboard_reply],
+        ) as get_reply:
+            teams = get_football_teams("Irish Premier Division")
+
+        self.assertEqual(
+            [(team.name, team.team_id) for team in teams],
+            [
+                ("Bohemians", "601"),
+                ("Derry City", "600"),
+                ("Shamrock Rovers", "602"),
+            ],
+        )
+        self.assertIn("/irl.1/scoreboard?", get_reply.call_args.args[0])
+
     def test_league_badge_is_downloaded_from_the_scoreboard_logo(self) -> None:
         """The league badge should use ESPN's own scoreboard logo address."""
         scoreboard_reply = {
@@ -221,6 +405,117 @@ class FootballApiTests(unittest.TestCase):
         get_image.assert_called_once_with(
             "https://a.espncdn.com/league-default.png"
         )
+
+    def test_league_table_is_read_from_espn_standings(self) -> None:
+        """Read team names and season totals from ESPN's table response."""
+        standings_reply = {
+            "children": [
+                {
+                    "name": "Premier League",
+                    "standings": {
+                        "entries": [
+                            {
+                                "team": {"displayName": "Arsenal"},
+                                "stats": [
+                                    {"name": "gamesPlayed", "value": 8},
+                                    {"name": "wins", "value": 6},
+                                    {"name": "ties", "value": 1},
+                                    {"name": "losses", "value": 1},
+                                    {"name": "pointsFor", "value": 16},
+                                    {"name": "pointsAgainst", "value": 5},
+                                    {"name": "points", "value": 19},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+
+        with patch(
+            "football_api.get_espn_json",
+            return_value=standings_reply,
+        ) as get_reply:
+            table_rows = get_league_table("English Premier League")
+
+        self.assertEqual(
+            table_rows,
+            [
+                FootballStanding(
+                    "Premier League",
+                    "1",
+                    "Arsenal",
+                    "8",
+                    "6",
+                    "1",
+                    "1",
+                    "16",
+                    "5",
+                    "11",
+                    "19",
+                )
+            ],
+        )
+        self.assertEqual(
+            get_reply.call_args.args[0],
+            "https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings",
+        )
+
+    def test_empty_espn_table_does_not_make_up_standings(self) -> None:
+        """An empty ESPN response should return no imaginary league rows."""
+        with patch("football_api.get_espn_json", return_value={}):
+            self.assertEqual(get_league_table("English Premier League"), [])
+
+        report = format_league_table("English Premier League", [])
+
+        self.assertIn(
+            "ESPN has not supplied current table information",
+            report,
+        )
+
+    def test_table_finds_direct_entries_without_duplicate_rows(self) -> None:
+        """An entries list nested inside standings should only be read once."""
+        table_reply = {
+            "standings": {
+                "entries": [
+                    {"team": {"displayName": "Arsenal"}, "stats": []}
+                ]
+            }
+        }
+
+        self.assertEqual(
+            len(find_standing_groups(table_reply)),
+            1,
+        )
+
+    def test_table_skips_entries_without_a_team_name(self) -> None:
+        """Do not display broken ESPN table rows as real football teams."""
+        self.assertIsNone(
+            make_standing_from_entry({"team": {}}, "", 1)
+        )
+
+    def test_table_report_shows_positions_points_and_goal_difference(self) -> None:
+        """The table display should include each team's main league totals."""
+        standing = FootballStanding(
+            "",
+            "1",
+            "Arsenal",
+            "8",
+            "6",
+            "1",
+            "1",
+            "16",
+            "5",
+            "11",
+            "19",
+        )
+
+        report = format_league_table("English Premier League", [standing])
+
+        self.assertIn("Pos", report)
+        self.assertIn("Arsenal", report)
+        self.assertIn("19", report)
+        self.assertIn("11", report)
 
     def test_all_league_match_request_uses_espn_scoreboard(self) -> None:
         """The all-teams choice should request matches for the whole league."""

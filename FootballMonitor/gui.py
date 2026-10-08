@@ -11,20 +11,24 @@ from typing import TypeVar
 from config import (
     ALL_TEAMS_LABEL,
     FOOTBALL_LEAGUES,
+    LEAGUE_GROUPS,
     LEAGUE_SELECTION_PROMPT,
 )
 from log_settings import (
     LogFileSettings,
     SettingsError,
     load_log_settings,
-    save_log_settings,
+    load_selected_leagues,
+    save_application_settings,
 )
 from football_api import (
     FootballMatch,
     FootballTeam,
+    format_league_table,
     format_match_list,
     get_football_teams,
     get_league_badge_bytes,
+    get_league_table,
     get_matches,
 )
 from helpers import FootballDataError, get_espn_image
@@ -56,6 +60,7 @@ class FootballMonitorWindow:
         self.selected_league = tk.StringVar(value=LEAGUE_SELECTION_PROMPT)
         self.selected_team = tk.StringVar(value=ALL_TEAMS_LABEL)
         self.status_message = tk.StringVar(value="Choose a league to get started.")
+        self.selected_leagues = load_selected_leagues()
         self.team_ids_by_name: dict[str, str] = {}
         self.teams_by_name: dict[str, FootballTeam] = {}
         self.request_number = 0
@@ -73,7 +78,7 @@ class FootballMonitorWindow:
             )
 
     def build_window(self) -> None:
-        """Place settings, menus, badges, refresh, results, and exit controls."""
+        """Place settings, choices, badges, information tabs, and exit control."""
         main_area = ttk.Frame(self.window, padding=16)
         main_area.pack(fill="both", expand=True)
 
@@ -97,7 +102,7 @@ class FootballMonitorWindow:
         self.league_menu = ttk.Combobox(
             main_area,
             textvariable=self.selected_league,
-            values=list(FOOTBALL_LEAGUES),
+            values=self.selected_leagues,
             state="readonly",
         )
         ttk.Style(self.window).configure(
@@ -158,27 +163,19 @@ class FootballMonitorWindow:
             pady=(0, 8),
         )
 
-        results_area = ttk.Frame(main_area)
-        results_area.grid(
+        information_tabs = ttk.Notebook(main_area)
+        information_tabs.grid(
             row=4,
             column=0,
             columnspan=3,
             sticky="nsew",
         )
-        self.results_box = tk.Text(
-            results_area,
-            wrap="word",
-            state="disabled",
-            font=("Segoe UI", 10),
-        )
-        results_scroll_bar = ttk.Scrollbar(
-            results_area,
-            orient="vertical",
-            command=self.results_box.yview,
-        )
-        self.results_box.configure(yscrollcommand=results_scroll_bar.set)
-        self.results_box.pack(side="left", fill="both", expand=True)
-        results_scroll_bar.pack(side="right", fill="y")
+        results_area = ttk.Frame(information_tabs)
+        table_area = ttk.Frame(information_tabs)
+        information_tabs.add(results_area, text="Results and Fixtures")
+        information_tabs.add(table_area, text="Table")
+        self.results_box = self.make_read_only_text_area(results_area, "word")
+        self.table_box = self.make_read_only_text_area(table_area, "none")
 
         self.exit_button = ttk.Button(
             main_area,
@@ -199,6 +196,31 @@ class FootballMonitorWindow:
             "Choose a league and team. The program will get current information "
             "directly from ESPN."
         )
+        self.show_table(
+            "Choose a league to see its current table, if ESPN provides one."
+        )
+
+    def make_read_only_text_area(
+        self,
+        parent: ttk.Frame,
+        word_wrap: str,
+    ) -> tk.Text:
+        """Create a scrollable text area that people can read but not edit."""
+        text_area = tk.Text(
+            parent,
+            wrap=word_wrap,
+            state="disabled",
+            font=("Consolas", 10) if word_wrap == "none" else ("Segoe UI", 10),
+        )
+        scroll_bar = ttk.Scrollbar(
+            parent,
+            orient="vertical",
+            command=text_area.yview,
+        )
+        text_area.configure(yscrollcommand=scroll_bar.set)
+        text_area.pack(side="left", fill="both", expand=True)
+        scroll_bar.pack(side="right", fill="y")
+        return text_area
 
     def load_teams_for_selected_league(
         self,
@@ -226,6 +248,7 @@ class FootballMonitorWindow:
         self.selected_team.set(ALL_TEAMS_LABEL)
         self.team_menu.configure(values=[ALL_TEAMS_LABEL], state="disabled")
         self.status_message.set(f"Getting teams in {league_name} from ESPN...")
+        self.show_table(f"Getting the current table for {league_name} from ESPN...")
         self.start_background_task(
             "loading football teams",
             lambda: self.load_league_selection_data(league_name),
@@ -233,14 +256,15 @@ class FootballMonitorWindow:
                 league_name,
                 league_data[0],
                 league_data[1],
+                league_data[2],
             ),
         )
 
     def load_league_selection_data(
         self,
         league_name: str,
-    ) -> tuple[list[FootballTeam], bytes | None]:
-        """Load teams and the league badge without failing the team menu."""
+    ) -> tuple[list[FootballTeam], bytes | None, str]:
+        """Load teams, badges, and table information for the selected league."""
         teams = get_football_teams(league_name)
         try:
             league_badge_bytes = get_league_badge_bytes(league_name)
@@ -253,13 +277,30 @@ class FootballMonitorWindow:
                 error,
             )
             league_badge_bytes = None
-        return teams, league_badge_bytes
+        try:
+            table_rows = get_league_table(league_name)
+            table_report = format_league_table(league_name, table_rows)
+        except (FootballDataError, OSError, ValueError) as error:
+            log_application_error(
+                "loading the selected league table",
+                str(error),
+                "Check the internet connection and open the Table tab again "
+                "after choosing the league.",
+                error,
+            )
+            table_report = (
+                f"Current table: {league_name}\n\n"
+                "ESPN's table information could not be loaded. "
+                "You can still view the teams and matches."
+            )
+        return teams, league_badge_bytes, table_report
 
     def finish_loading_teams(
         self,
         league_name: str,
         teams: list[FootballTeam],
         league_badge_bytes: bytes | None = None,
+        table_report: str | None = None,
     ) -> None:
         """Put ESPN's teams in the second menu and allow match searches."""
         if league_name != self.selected_league.get():
@@ -272,6 +313,8 @@ class FootballMonitorWindow:
         team_names = [ALL_TEAMS_LABEL, *self.team_ids_by_name]
         self.team_menu.configure(values=team_names, state="readonly")
         self.show_badge(league_badge_bytes, "league")
+        if table_report is not None:
+            self.show_table(table_report)
         self.status_message.set(
             f"Loaded {len(self.team_ids_by_name)} teams from ESPN. "
             "Choose a team or all teams to load matches."
@@ -432,6 +475,7 @@ class FootballMonitorWindow:
                     lambda: self.finish_task_with_problem(
                         this_request_number,
                         problem_message,
+                        task_description,
                     ),
                 )
                 return
@@ -452,6 +496,7 @@ class FootballMonitorWindow:
                     lambda: self.finish_task_with_problem(
                         this_request_number,
                         problem_message,
+                        task_description,
                     ),
                 )
                 return
@@ -493,12 +538,19 @@ class FootballMonitorWindow:
         self,
         request_number: int,
         problem_message: str,
+        task_description: str,
     ) -> None:
         """Show a failed request only if it still belongs to the current choice."""
         if request_number != self.request_number:
             return
         self.status_message.set("ESPN information could not be loaded.")
         self.show_results(problem_message)
+        if task_description == "loading football teams":
+            self.show_table(
+                f"Current table: {self.selected_league.get()}\n\n"
+                "ESPN information could not be loaded. "
+                "Please choose the league again later."
+            )
         messagebox.showerror(
             "Football information could not be loaded",
             problem_message,
@@ -522,32 +574,86 @@ class FootballMonitorWindow:
 
     def show_results(self, readable_text: str) -> None:
         """Replace the words in the results area without making it editable."""
-        self.results_box.configure(state="normal")
-        self.results_box.delete("1.0", "end")
-        self.results_box.insert("1.0", readable_text)
-        self.results_box.configure(state="disabled")
+        self.replace_read_only_text(self.results_box, readable_text)
+
+    def show_table(self, readable_text: str) -> None:
+        """Replace the words in the Table tab without making it editable."""
+        self.replace_read_only_text(self.table_box, readable_text)
+
+    def replace_read_only_text(
+        self,
+        text_area: tk.Text,
+        readable_text: str,
+    ) -> None:
+        """Change text in a read-only area while keeping it locked afterward."""
+        text_area.configure(state="normal")
+        text_area.delete("1.0", "end")
+        text_area.insert("1.0", readable_text)
+        text_area.configure(state="disabled")
 
     def open_log_settings(self) -> None:
         """Open the cog window for changing paths and viewing the logs."""
         log_application_activity("The user opened log settings.")
         LogSettingsWindow(self)
 
+    def apply_selected_leagues(self, selected_leagues: list[str]) -> None:
+        """Update the league menu and clear a league that was switched off."""
+        self.selected_leagues = [
+            league_name
+            for league_name in FOOTBALL_LEAGUES
+            if league_name in selected_leagues
+        ]
+        self.league_menu.configure(
+            values=self.selected_leagues,
+            state="readonly" if self.selected_leagues else "disabled",
+        )
+        if self.selected_league.get() in self.selected_leagues:
+            return
+
+        self.request_number += 1
+        self.selected_league.set(LEAGUE_SELECTION_PROMPT)
+        self.selected_team.set(ALL_TEAMS_LABEL)
+        self.team_ids_by_name = {}
+        self.teams_by_name = {}
+        self.team_menu.configure(values=[ALL_TEAMS_LABEL], state="disabled")
+        self.league_menu.configure(style="LeaguePrompt.TCombobox")
+        self.show_badge(None, "league")
+        self.show_badge(None, "team")
+        if self.selected_leagues:
+            self.status_message.set("Choose a league to get started.")
+            self.show_results("Choose a league to see its results and fixtures.")
+            self.show_table("Choose a league to see its current table.")
+        else:
+            self.status_message.set(
+                "No leagues are selected. Open the cog to choose leagues."
+            )
+            self.show_results(
+                "No leagues are selected. Open the cog settings and choose "
+                "at least one league."
+            )
+            self.show_table(
+                "No leagues are selected. Open the cog settings and choose "
+                "at least one league."
+            )
+
 
 class LogSettingsWindow:
-    """Let the user save log paths, run tests, and view logs without editing."""
+    """Let the user choose leagues, save log paths, run tests, and view logs."""
 
     def __init__(self, monitor: FootballMonitorWindow) -> None:
         """Create one separate settings window attached to the main app."""
         self.monitor = monitor
         self.window = tk.Toplevel(monitor.window)
         self.window.title("Football Monitor Settings and Logs")
-        self.window.geometry("760x330")
+        self.window.geometry("800x720")
+        self.window.minsize(680, 560)
         self.window.transient(monitor.window)
         self.path_fields: dict[str, tk.StringVar] = {}
+        self.league_checkbox_values: dict[str, tk.BooleanVar] = {}
         self.build_settings_window()
 
     def build_settings_window(self) -> None:
-        """Show editable path choices and buttons to open each read-only log."""
+        """Show league checkboxes, log paths, and read-only log buttons."""
         settings_area = ttk.Frame(self.window, padding=16)
         settings_area.pack(fill="both", expand=True)
 
@@ -597,13 +703,62 @@ class LogSettingsWindow:
                 ),
             ).grid(row=row_number, column=3, pady=7)
 
-        action_buttons = ttk.Frame(settings_area)
-        action_buttons.grid(
+        ttk.Label(
+            settings_area,
+            text="Leagues shown in the main window",
+        ).grid(
             row=3,
             column=0,
             columnspan=4,
+            sticky="w",
+            pady=(12, 4),
+        )
+        league_list_area = ttk.Frame(settings_area, height=260)
+        league_list_area.grid(
+            row=4,
+            column=0,
+            columnspan=4,
+            sticky="nsew",
+        )
+        league_list_area.grid_propagate(False)
+        league_canvas = tk.Canvas(league_list_area, highlightthickness=0)
+        league_scroll_bar = ttk.Scrollbar(
+            league_list_area,
+            orient="vertical",
+            command=league_canvas.yview,
+        )
+        league_contents = ttk.Frame(league_canvas)
+
+        def update_league_scroll_region(event: tk.Event) -> None:
+            """Keep all league checkboxes reachable with the scroll bar."""
+            del event
+            league_canvas.configure(scrollregion=league_canvas.bbox("all"))
+
+        league_contents.bind("<Configure>", update_league_scroll_region)
+        league_window = league_canvas.create_window(
+            (0, 0),
+            window=league_contents,
+            anchor="nw",
+        )
+        league_canvas.configure(yscrollcommand=league_scroll_bar.set)
+        league_canvas.bind(
+            "<Configure>",
+            lambda event: league_canvas.itemconfigure(
+                league_window,
+                width=event.width,
+            ),
+        )
+        league_canvas.pack(side="left", fill="both", expand=True)
+        league_scroll_bar.pack(side="right", fill="y")
+        self.build_league_checkboxes(league_contents)
+
+        action_buttons = ttk.Frame(settings_area)
+        action_buttons.grid(
+            row=5,
+            column=0,
+            columnspan=4,
             sticky="e",
-            pady=(14, 0),
+            pady=(12, 0),
         )
         ttk.Button(
             action_buttons,
@@ -612,10 +767,11 @@ class LogSettingsWindow:
         ).pack(side="left", padx=5)
         ttk.Button(
             action_buttons,
-            text="Save log settings",
+            text="Save settings",
             command=self.save_settings,
         ).pack(side="left", padx=5)
         settings_area.columnconfigure(1, weight=1)
+        settings_area.rowconfigure(4, weight=1)
 
         integrity_warnings = get_integrity_warnings()
         if integrity_warnings:
@@ -624,7 +780,34 @@ class LogSettingsWindow:
                 text="\n".join(integrity_warnings),
                 foreground="#b00020",
                 wraplength=700,
-            ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(12, 0))
+            ).grid(row=6, column=0, columnspan=4, sticky="w", pady=(12, 0))
+
+    def build_league_checkboxes(self, parent: ttk.Frame) -> None:
+        """Show a check box for every ESPN league, grouped by location."""
+        selected_league_names = set(self.monitor.selected_leagues)
+        for group_number, (group_name, league_names) in enumerate(
+            LEAGUE_GROUPS.items()
+        ):
+            group_area = ttk.LabelFrame(parent, text=group_name, padding=8)
+            group_area.grid(
+                row=group_number // 2,
+                column=group_number % 2,
+                sticky="nsew",
+                padx=5,
+                pady=5,
+            )
+            for row_number, league_name in enumerate(league_names):
+                selected = tk.BooleanVar(
+                    master=self.window,
+                    value=league_name in selected_league_names,
+                )
+                self.league_checkbox_values[league_name] = selected
+                ttk.Checkbutton(
+                    group_area,
+                    text=league_name,
+                    variable=selected,
+                ).grid(row=row_number, column=0, sticky="w", pady=2)
+            parent.columnconfigure(group_number % 2, weight=1)
 
     def choose_log_file(self, setting_name: str) -> None:
         """Let the user choose where one log file will be stored."""
@@ -641,7 +824,7 @@ class LogSettingsWindow:
             self.path_fields[setting_name].set(selected_path)
 
     def save_settings(self) -> None:
-        """Validate and save paths, then connect the loggers to the new files."""
+        """Save log paths and league choices, then update the main window."""
         new_settings = LogFileSettings(
             api_communications_log=self.path_fields[
                 "api_communications_log"
@@ -649,8 +832,13 @@ class LogSettingsWindow:
             application_log=self.path_fields["application_log"].get(),
             testing_log=self.path_fields["testing_log"].get(),
         )
+        selected_leagues = [
+            league_name
+            for league_name in FOOTBALL_LEAGUES
+            if self.league_checkbox_values[league_name].get()
+        ]
         try:
-            save_log_settings(new_settings)
+            save_application_settings(new_settings, selected_leagues)
             configure_log_files(new_settings)
         except (SettingsError, OSError) as error:
             log_application_error(
@@ -668,10 +856,11 @@ class LogSettingsWindow:
             return
 
         self.monitor.log_settings = new_settings
+        self.monitor.apply_selected_leagues(selected_leagues)
         log_application_activity("The user saved new log file paths.")
         messagebox.showinfo(
             "Log settings saved",
-            "The log file locations have been saved.",
+            "Your log file locations and league choices have been saved.",
             parent=self.window,
         )
         self.window.destroy()

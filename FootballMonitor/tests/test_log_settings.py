@@ -13,6 +13,8 @@ from log_settings import (
     get_default_log_settings,
     get_settings_file_path,
     load_log_settings,
+    load_selected_leagues,
+    save_application_settings,
     save_log_settings,
     validate_log_settings,
 )
@@ -65,6 +67,121 @@ class LogSettingsTests(unittest.TestCase):
             saved_json["application_log"],
             str(Path(expected_settings.application_log).resolve()),
         )
+
+    def test_local_leagues_are_selected_by_default(self) -> None:
+        """Choose English, Scottish, Irish, and Northern Irish leagues first."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            with patch.dict(
+                os.environ,
+                {
+                    "APPDATA": str(Path(temporary_folder) / "Roaming"),
+                    "LOCALAPPDATA": str(Path(temporary_folder) / "Local"),
+                },
+            ):
+                selected_leagues = load_selected_leagues()
+
+        self.assertEqual(
+            selected_leagues,
+            [
+                "English Premier League",
+                "English Championship",
+                "English League One",
+                "English League Two",
+                "English National League",
+                "Scottish Premiership",
+                "Scottish Championship",
+                "Scottish League One",
+                "Scottish League Two",
+                "Irish Premier Division",
+                "Northern Irish Premiership",
+            ],
+        )
+        self.assertNotIn("Spanish LaLiga", selected_leagues)
+
+    def test_selected_leagues_are_saved_and_loaded(self) -> None:
+        """Keep league choices between app launches in the settings file."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            roaming_folder = Path(temporary_folder) / "Roaming"
+            local_folder = Path(temporary_folder) / "Local"
+            with patch.dict(
+                os.environ,
+                {
+                    "APPDATA": str(roaming_folder),
+                    "LOCALAPPDATA": str(local_folder),
+                },
+            ):
+                expected_settings = LogFileSettings(
+                    str(local_folder / "api.txt"),
+                    str(local_folder / "app.txt"),
+                    str(local_folder / "tests.txt"),
+                )
+                selected_leagues = [
+                    "Spanish LaLiga",
+                    "English Premier League",
+                ]
+                save_application_settings(expected_settings, selected_leagues)
+
+                loaded_leagues = load_selected_leagues()
+                saved_json = json.loads(
+                    get_settings_file_path().read_text(encoding="utf-8")
+                )
+
+        self.assertEqual(
+            loaded_leagues,
+            ["English Premier League", "Spanish LaLiga"],
+        )
+        self.assertEqual(
+            saved_json["selected_leagues"],
+            ["English Premier League", "Spanish LaLiga"],
+        )
+
+    def test_saving_log_paths_keeps_saved_league_choices(self) -> None:
+        """Changing log paths must not erase the league checkbox choices."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            roaming_folder = Path(temporary_folder) / "Roaming"
+            local_folder = Path(temporary_folder) / "Local"
+            with patch.dict(
+                os.environ,
+                {
+                    "APPDATA": str(roaming_folder),
+                    "LOCALAPPDATA": str(local_folder),
+                },
+            ):
+                log_settings = LogFileSettings(
+                    str(local_folder / "api.txt"),
+                    str(local_folder / "app.txt"),
+                    str(local_folder / "tests.txt"),
+                )
+                save_application_settings(
+                    log_settings,
+                    ["German Bundesliga"],
+                )
+                save_log_settings(log_settings)
+                loaded_leagues = load_selected_leagues()
+
+        self.assertEqual(loaded_leagues, ["German Bundesliga"])
+
+    def test_unknown_league_cannot_be_saved(self) -> None:
+        """Only leagues listed by the program can be selected in settings."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            local_folder = Path(temporary_folder) / "Local"
+            settings = LogFileSettings(
+                str(local_folder / "api.txt"),
+                str(local_folder / "app.txt"),
+                str(local_folder / "tests.txt"),
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "APPDATA": str(Path(temporary_folder) / "Roaming"),
+                    "LOCALAPPDATA": str(local_folder),
+                },
+            ):
+                with self.assertRaisesRegex(SettingsError, "available league"):
+                    save_application_settings(
+                        settings,
+                        ["A made-up league"],
+                    )
 
     def test_duplicate_log_paths_are_rejected(self) -> None:
         """Each type of log must be kept in its own file."""

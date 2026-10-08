@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from config import DEFAULT_SELECTED_LEAGUES, FOOTBALL_LEAGUES
+
 
 APP_DATA_FOLDER_NAME = "FootballMonitor"
 SETTINGS_FILE_NAME = "settings.json"
@@ -61,18 +63,7 @@ def load_log_settings() -> LogFileSettings:
         save_log_settings(default_settings)
         return default_settings
 
-    try:
-        saved_values = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise SettingsError(
-            "The log settings file could not be read. Check that it is valid "
-            f"JSON and that this account can read it: {settings_file}"
-        ) from error
-
-    if not isinstance(saved_values, dict):
-        raise SettingsError(
-            f"The log settings file must contain a JSON object: {settings_file}"
-        )
+    saved_values = read_settings_document()
     settings = LogFileSettings(
         api_communications_log=get_saved_path(
             saved_values,
@@ -106,42 +97,119 @@ def get_saved_path(saved_values: dict[str, object], setting_name: str) -> str:
 def save_log_settings(settings: LogFileSettings) -> None:
     """Save the log file paths outside the program's source code folder."""
     validate_log_settings(settings)
+    saved_values = read_settings_document()
+    saved_values.update(make_log_settings_values(settings))
+    save_settings_document(saved_values, "log settings")
+
+
+def load_selected_leagues() -> list[str]:
+    """Read the league checkboxes or choose the local leagues by default."""
     settings_file = get_settings_file_path()
+    if not settings_file.exists():
+        return list(DEFAULT_SELECTED_LEAGUES)
+    saved_values = read_settings_document()
+    saved_leagues = saved_values.get("selected_leagues")
+    if saved_leagues is None:
+        return list(DEFAULT_SELECTED_LEAGUES)
+    if not isinstance(saved_leagues, list) or not all(
+        isinstance(league_name, str) for league_name in saved_leagues
+    ):
+        raise SettingsError(
+            "The selected leagues setting must be a list of league names. "
+            f"Check the settings file: {settings_file}"
+        )
+    selected_names = set(saved_leagues)
+    return [
+        league_name
+        for league_name in FOOTBALL_LEAGUES
+        if league_name in selected_names
+    ]
+
+
+def save_application_settings(
+    log_settings: LogFileSettings,
+    selected_leagues: list[str],
+) -> None:
+    """Save log paths and selected leagues together in one settings update."""
+    validate_log_settings(log_settings)
+    unknown_leagues = set(selected_leagues) - set(FOOTBALL_LEAGUES)
+    if unknown_leagues:
+        raise SettingsError(
+            "Only leagues from the available league list can be selected."
+        )
+    saved_values = read_settings_document()
+    saved_values.update(make_log_settings_values(log_settings))
+    saved_values["selected_leagues"] = [
+        league_name
+        for league_name in FOOTBALL_LEAGUES
+        if league_name in selected_leagues
+    ]
+    save_settings_document(saved_values, "application settings")
+
+
+def make_log_settings_values(
+    settings: LogFileSettings,
+) -> dict[str, str]:
+    """Make the three log paths ready to save in the settings file."""
+    return {
+        "api_communications_log": str(
+            Path(settings.api_communications_log).expanduser().resolve()
+        ),
+        "application_log": str(
+            Path(settings.application_log).expanduser().resolve()
+        ),
+        "testing_log": str(
+            Path(settings.testing_log).expanduser().resolve()
+        ),
+    }
+
+
+def read_settings_document() -> dict[str, object]:
+    """Read the shared JSON settings without dropping saved preferences."""
+    settings_file = get_settings_file_path()
+    if not settings_file.exists():
+        return {}
+    try:
+        saved_values = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SettingsError(
+            "The settings file could not be read. Check that it is valid JSON "
+            f"and that this account can read it: {settings_file}"
+        ) from error
+    if not isinstance(saved_values, dict):
+        raise SettingsError(
+            f"The settings file must contain a JSON object: {settings_file}"
+        )
+    return saved_values
+
+
+def save_settings_document(
+    saved_values: dict[str, object],
+    settings_description: str,
+) -> None:
+    """Safely replace the settings file without losing its other choices."""
+    settings_file = get_settings_file_path()
+    temporary_file_path: Path | None = None
     try:
         settings_file.parent.mkdir(parents=True, exist_ok=True)
-        settings_json = json.dumps(
-            {
-                "api_communications_log": str(
-                    Path(settings.api_communications_log).expanduser().resolve()
-                ),
-                "application_log": str(
-                    Path(settings.application_log).expanduser().resolve()
-                ),
-                "testing_log": str(
-                    Path(settings.testing_log).expanduser().resolve()
-                ),
-            },
-            indent=2,
-        )
-        temporary_file_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=settings_file.parent,
-                delete=False,
-            ) as temporary_file:
-                temporary_file.write(settings_json)
-                temporary_file_path = Path(temporary_file.name)
-            temporary_file_path.replace(settings_file)
-        finally:
-            if temporary_file_path is not None and temporary_file_path.exists():
-                temporary_file_path.unlink()
+        settings_json = json.dumps(saved_values, indent=2)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=settings_file.parent,
+            delete=False,
+        ) as temporary_file:
+            temporary_file.write(settings_json)
+            temporary_file_path = Path(temporary_file.name)
+        temporary_file_path.replace(settings_file)
     except OSError as error:
         raise SettingsError(
-            "The log settings could not be saved. Check that this account can "
-            f"write to {settings_file.parent}."
+            f"The {settings_description} could not be saved. Check that this "
+            f"account can write to {settings_file.parent}."
         ) from error
+    finally:
+        if temporary_file_path is not None and temporary_file_path.exists():
+            temporary_file_path.unlink()
 
 
 def validate_log_settings(settings: LogFileSettings) -> None:

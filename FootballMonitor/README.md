@@ -21,11 +21,14 @@ packages or account are needed.
 ## Choose a league and team
 
 1. Choose a football league from the first menu.
-2. Wait while the program asks ESPN for that league's current team list.
+2. Wait while the program asks ESPN for that league's current team list and
+   table information.
 3. Choose **All teams in this league** to see ESPN's current league scoreboard,
    or choose one team to see that team's season schedule. Selecting the choice
    loads the latest match information automatically.
-4. Use the **Exit** button at the bottom of the window to close the program.
+4. Use the **Results and Fixtures** tab to read matches. Use the **Table** tab
+   to read the league table, when ESPN supplies one.
+5. Use the **Exit** button at the bottom of the window to close the program.
 
 When ESPN supplies the image addresses, the selected league badge appears to
 the right of the league menu and the selected team's badge appears beside the
@@ -34,19 +37,37 @@ images are downloaded securely from ESPN and made smaller to fit the window.
 
 The program shows fixture times in your computer's local time zone. If there
 are no matches to show at that time, it says so rather than inventing results.
-Team lists, fixtures, scores, match status, and venue details come from ESPN.
+Team lists, fixtures, scores, match status, table totals, and venue details
+come from ESPN. Some leagues may not have table information available from
+ESPN. In that case, the Table tab explains that the information was not
+supplied instead of showing made-up results.
+ESPN does not provide a full team list for the Irish Premier Division, so its
+team menu is filled with the clubs shown in ESPN's current fixtures.
+League tables are requested from ESPN's v2 standings endpoint.
 
 The program currently offers the English Premier League, English Championship,
-Spanish LaLiga, German Bundesliga, Italian Serie A, French Ligue 1, Major League
-Soccer (MLS), UEFA Champions League, UEFA Europa League, Liga MX, Brazilian Serie A,
-and Scottish Premiership.
+English League One, English League Two, English National League, the Scottish
+Premiership, Championship, League One and League Two, the Irish Premier Division,
+the Northern Irish Premiership, Spanish LaLiga, German Bundesliga, Italian Serie
+A, French Ligue 1, Major League Soccer (MLS), UEFA Champions League, UEFA Europa
+League, Liga MX, and Brazilian Serie A.
+
+## Choose which leagues appear
+
+Click the cog button to open the settings. Tick the leagues you want to see in
+the main league menu, then choose **Save settings**. The English, Scottish,
+Irish, and Northern Irish leagues are checked the first time the program runs.
+Other leagues are available in the settings, but start unchecked. Your choices
+are saved in the external settings file and remembered when the program opens
+again. If you turn off the league you were using, its team and match choices
+are cleared so results from a hidden league do not stay on screen.
 
 ## If information cannot be loaded
 
 The program shows a clear message if your internet connection is unavailable,
 ESPN returns an error, or ESPN sends information the program cannot read.
-Check your connection and try refreshing again. Some competitions may have no
-matches scheduled at the moment.
+Check your connection and choose the league again later. Some competitions may
+have no matches scheduled at the moment.
 
 ## How the program is organised
 
