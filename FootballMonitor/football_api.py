@@ -5,7 +5,12 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from config import ALL_TEAMS_LABEL, ESPN_API_ROOT, FOOTBALL_LEAGUES
-from helpers import FootballDataError, clean_words, get_espn_json
+from helpers import (
+    FootballDataError,
+    clean_words,
+    get_espn_image,
+    get_espn_json,
+)
 
 
 @dataclass(frozen=True)
@@ -14,6 +19,7 @@ class FootballTeam:
 
     name: str
     team_id: str
+    badge_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,26 @@ def get_football_teams(league_name: str) -> list[FootballTeam]:
             f"ESPN did not list any teams for {league_name}. Please try again later."
         )
     return sorted(teams, key=lambda team: team.name.casefold())
+
+
+def get_league_badge_bytes(league_name: str) -> bytes | None:
+    """Download the selected league badge that ESPN lists on its scoreboard."""
+    league_code = get_league_code(league_name)
+    request_address = (
+        f"{ESPN_API_ROOT}/{league_code}/scoreboard?"
+        f"{urlencode({'limit': 1})}"
+    )
+    reply = get_espn_json(request_address)
+    leagues = reply.get("leagues")
+    if not isinstance(leagues, list) or not leagues:
+        return None
+    league_data = leagues[0]
+    if not isinstance(league_data, dict):
+        return None
+    logo_url = get_default_logo_url(league_data.get("logos"))
+    if not logo_url:
+        return None
+    return get_espn_image(logo_url)
 
 
 def get_matches(
@@ -125,7 +151,31 @@ def get_team_from_entry(team_entry: object) -> FootballTeam | None:
     team_id = clean_words(team_data.get("id"), "")
     if not team_name or not team_id.isdigit():
         return None
-    return FootballTeam(team_name, team_id)
+    team_badge_url = get_default_logo_url(team_data.get("logos"))
+    return FootballTeam(team_name, team_id, team_badge_url)
+
+
+def get_default_logo_url(logo_entries: object) -> str:
+    """Choose ESPN's normal light-background image address from logo choices."""
+    if not isinstance(logo_entries, list):
+        return ""
+
+    first_logo_url = ""
+    for logo_entry in logo_entries:
+        if not isinstance(logo_entry, dict):
+            continue
+        logo_url = clean_words(logo_entry.get("href"), "")
+        if not logo_url:
+            continue
+        if not first_logo_url:
+            first_logo_url = logo_url
+        logo_relationships = logo_entry.get("rel")
+        if (
+            isinstance(logo_relationships, list)
+            and "default" in logo_relationships
+        ):
+            return logo_url
+    return first_logo_url
 
 
 def make_match_from_event(event: object) -> FootballMatch | None:

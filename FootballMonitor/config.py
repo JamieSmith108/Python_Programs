@@ -2,9 +2,12 @@
 
 ESPN_API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 ESPN_API_HOST = "site.api.espn.com"
+ESPN_IMAGE_HOST = "a.espncdn.com"
 REQUEST_TIMEOUT_SECONDS = 15
 MAX_REPLY_SIZE_BYTES = 5_000_000
+MAX_IMAGE_SIZE_BYTES = 2_000_000
 ALL_TEAMS_LABEL = "All teams in this league"
+LEAGUE_SELECTION_PROMPT = "Please Select League"
 
 # The key is what people see in the league list. The value is ESPN's league code.
 FOOTBALL_LEAGUES = {

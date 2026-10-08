@@ -1,18 +1,20 @@
 """Check that ESPN's football information is read and shown correctly."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from config import FOOTBALL_LEAGUES
+from config import FOOTBALL_LEAGUES, LEAGUE_SELECTION_PROMPT
 from football_api import (
     FootballMatch,
     format_match_list,
     get_football_teams,
+    get_league_badge_bytes,
     get_league_code,
     get_matches,
     make_match_from_event,
 )
 from helpers import FootballDataError
+from gui import FootballMonitorWindow
 
 
 class FootballApiTests(unittest.TestCase):
@@ -36,6 +38,112 @@ class FootballApiTests(unittest.TestCase):
         )
         self.assertIn("Major League Soccer (MLS)", FOOTBALL_LEAGUES)
 
+    def test_prompt_does_not_start_a_team_request(self) -> None:
+        """The app must wait for a real league choice before requesting teams."""
+        window = object.__new__(FootballMonitorWindow)
+        window.selected_league = Mock()
+        window.selected_league.get.return_value = LEAGUE_SELECTION_PROMPT
+        window.team_ids_by_name = {"Old team": "1"}
+        window.team_menu = Mock()
+        window.league_badge_label = Mock()
+        window.team_badge_label = Mock()
+        window.status_message = Mock()
+        window.start_background_task = Mock()
+
+        window.load_teams_for_selected_league()
+
+        window.start_background_task.assert_not_called()
+        window.team_menu.configure.assert_called_once_with(
+            values=["All teams in this league"],
+            state="disabled",
+        )
+        self.assertEqual(window.team_ids_by_name, {})
+
+    def test_choosing_a_team_starts_loading_its_matches(self) -> None:
+        """Selecting a team should request matches without a refresh button."""
+        window = object.__new__(FootballMonitorWindow)
+        window.selected_league = Mock()
+        window.selected_league.get.return_value = "English Premier League"
+        window.selected_team = Mock()
+        window.selected_team.get.return_value = "Arsenal"
+        window.team_ids_by_name = {"Arsenal": "359"}
+        window.teams_by_name = {
+            "Arsenal": Mock(name="Arsenal", team_id="359", badge_url="")
+        }
+        window.show_badge = Mock()
+        window.status_message = Mock()
+        window.start_background_task = Mock()
+
+        window.show_selected_matches()
+
+        window.start_background_task.assert_called_once()
+        self.assertEqual(
+            window.start_background_task.call_args.args[0],
+            "loading football matches",
+        )
+
+    def test_all_teams_match_loading_does_not_request_a_club_badge(self) -> None:
+        """The league-wide choice should not download or show any club badge."""
+        window = object.__new__(FootballMonitorWindow)
+        match_list = [Mock()]
+        checked_at = "2026-10-08 14:00 BST"
+        with (
+            patch("gui.get_matches", return_value=(match_list, checked_at)),
+            patch("gui.get_espn_image") as get_image,
+        ):
+            result = window.load_match_details(
+                "English Premier League",
+                "All teams in this league",
+                None,
+                None,
+            )
+
+        self.assertEqual(result, (match_list, checked_at, None))
+        get_image.assert_not_called()
+
+    def test_all_teams_results_do_not_show_a_club_badge(self) -> None:
+        """The league-wide results should leave the team badge area empty."""
+        window = object.__new__(FootballMonitorWindow)
+        window.show_results = Mock()
+        window.status_message = Mock()
+        window.show_badge = Mock()
+
+        with patch("gui.log_application_activity"):
+            window.finish_loading_matches(
+                "English Premier League",
+                "All teams in this league",
+                ([], "2026-10-08 14:00 BST", b"unused badge"),
+            )
+
+        window.show_badge.assert_not_called()
+
+    def test_selected_team_results_show_the_club_badge(self) -> None:
+        """A team-specific result should display the badge returned by ESPN."""
+        window = object.__new__(FootballMonitorWindow)
+        window.show_results = Mock()
+        window.status_message = Mock()
+        window.show_badge = Mock()
+        selected_badge = b"team badge"
+
+        with patch("gui.log_application_activity"):
+            window.finish_loading_matches(
+                "English Premier League",
+                "Arsenal",
+                ([], "2026-10-08 14:00 BST", selected_badge),
+            )
+
+        window.show_badge.assert_called_once_with(selected_badge, "team")
+
+    def test_exit_button_action_closes_the_main_window(self) -> None:
+        """The Exit button action should close the program window."""
+        window = object.__new__(FootballMonitorWindow)
+        window.window = Mock()
+
+        with patch("gui.log_application_activity"):
+            window.exit_application()
+
+        window.window.destroy.assert_called_once_with()
+
     def test_unlisted_league_is_not_sent_to_espn(self) -> None:
         """A made-up league must not be used to build a web address."""
         with self.assertRaisesRegex(FootballDataError, "Choose a football league"):
@@ -49,7 +157,20 @@ class FootballApiTests(unittest.TestCase):
                     "leagues": [
                         {
                             "teams": [
-                                {"team": {"displayName": "Arsenal", "id": "359"}},
+                                {
+                                    "team": {
+                                        "displayName": "Arsenal",
+                                        "id": "359",
+                                        "logos": [
+                                            {
+                                                "href": (
+                                                    "https://a.espncdn.com/arsenal.png"
+                                                ),
+                                                "rel": ["full", "default"],
+                                            }
+                                        ],
+                                    }
+                                },
                                 {"team": {"displayName": "Invalid team", "id": "x"}},
                             ]
                         }
@@ -62,6 +183,44 @@ class FootballApiTests(unittest.TestCase):
             teams = get_football_teams("English Premier League")
 
         self.assertEqual([(team.name, team.team_id) for team in teams], [("Arsenal", "359")])
+        self.assertEqual(
+            teams[0].badge_url,
+            "https://a.espncdn.com/arsenal.png",
+        )
+
+    def test_league_badge_is_downloaded_from_the_scoreboard_logo(self) -> None:
+        """The league badge should use ESPN's own scoreboard logo address."""
+        scoreboard_reply = {
+            "leagues": [
+                {
+                    "logos": [
+                        {
+                            "href": "https://a.espncdn.com/league-default.png",
+                            "rel": ["full", "default"],
+                        }
+                    ]
+                }
+            ]
+        }
+        badge_bytes = b"test league badge"
+
+        with (
+            patch(
+                "football_api.get_espn_json",
+                return_value=scoreboard_reply,
+            ) as get_reply,
+            patch(
+                "football_api.get_espn_image",
+                return_value=badge_bytes,
+            ) as get_image,
+        ):
+            league_badge = get_league_badge_bytes("English Premier League")
+
+        self.assertEqual(league_badge, badge_bytes)
+        self.assertIn("/eng.1/scoreboard?", get_reply.call_args.args[0])
+        get_image.assert_called_once_with(
+            "https://a.espncdn.com/league-default.png"
+        )
 
     def test_all_league_match_request_uses_espn_scoreboard(self) -> None:
         """The all-teams choice should request matches for the whole league."""
