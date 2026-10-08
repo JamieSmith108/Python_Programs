@@ -113,6 +113,7 @@ The Settings window also lets you change:
 - How long the program waits for a reply, in seconds
 - The full path where the API issue-tracking log is saved
 - The full path where the application problem log is saved
+- The full path where the test results log is saved
 
 Choose **Save settings** to remember your choices. The window title and size
 change at once. The search address, wait time, and selected details are used
@@ -120,18 +121,19 @@ for the next search. Enter a full file path for the API issue-tracking log,
 such as
 `C:\Users\YourName\AppData\Local\TVMazeShowFinder\API_activity_logging.log`.
 Enter a full file path for the application log, such as
-`C:\Users\YourName\AppData\Local\TVMazeShowFinder\application_log`. Both log
+`C:\Users\YourName\AppData\Local\TVMazeShowFinder\application_log`. Enter a
+full file path for the tests log, such as
+`C:\Users\YourName\AppData\Local\TVMazeShowFinder\tests_log`. All three log
 files must be saved outside the program folder and must use different file
 paths.
 
-The Settings window has **View API issue log** and **View application log**
-buttons. Each button shows the file at the path currently in its setting box
-in a read-only window inside the program. You can select and copy the notes,
-but you cannot change them there. If you try to type, delete, paste, or cut,
-the program warns you and blocks the change. If the log has not been created
-yet, the program explains that it cannot open it. Save the settings with that
-log path first; the program creates the log when it starts using the saved
-location.
+The Settings window has **View API issue log**, **View application log**, and
+**View tests log** buttons. Each button shows the file at the path currently
+in its setting box in a read-only window inside the program. You can select
+and copy the notes, but you cannot change them there. If you try to type,
+delete, paste, or cut, the program warns you and blocks the change. If a log
+has not been created yet, the program explains that it cannot open it. The
+program creates each log when it first uses the saved location.
 
 The read-only rule applies to the viewer inside this program. The log files
 must still be writable by the program so it can add new notes. Opening the
@@ -184,6 +186,7 @@ and explains the problem without showing unusable information.
 ## What each program file does
 
 - `main.py` starts the desktop program.
+- `run_tests.py` runs the automatic tests and saves their results.
 - `gui.py` builds the main window and handles searching, pictures, and Exit.
 - `settings_window.py` builds the separate Settings window.
 - `tvmaze_api.py` asks TVMaze for matching shows, makes their answers readable,
@@ -197,8 +200,10 @@ and explains the problem without showing unusable information.
 - `application_logging.py` records errors and problems that happen inside the
   program.
 - `config.py` holds default settings and the list of available show details.
+- The tests log saves the results of a test run at the location shown in
+  Settings.
 - `settings.json` stores the choices you saved in the Settings window.
-- The API issue-tracking log and the application log are saved at the
+- The API issue-tracking log, application log, and tests log are saved at the
   locations shown in Settings, outside the program folder.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
@@ -215,33 +220,41 @@ window. They use pretend website replies and temporary files instead. This
 makes the tests safer and helps them give the same result each time.
 
 To run the tests, open PowerShell in the TVMaze folder, turn on the project's
-private Python environment, and run:
+private Python environment, and run the test command:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m unittest discover -s tests
+python run_tests.py
 ```
 
-If the environment is already turned on, run only the test command. You can
-also run it without turning on the environment:
+If the environment is already turned on, run only `python run_tests.py`. You
+can also run the tests without turning on the environment:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv\Scripts\python.exe run_tests.py
 ```
+
+The test results appear on the screen and are also saved in the tests log.
+Open Settings and choose **View tests log** to read the saved results. The
+default file is named `tests_log` and is kept in
+`%LOCALAPPDATA%\TVMazeShowFinder\tests_log`, outside the program folder. You
+can choose another full file path in Settings. Each run is added after the
+earlier results, with a date and time to separate runs.
 
 When everything is working, the last lines say how many tests ran and show
 `OK`. If a test finds a problem, the last lines say `FAILED` and explain which
 check did not get the expected result. Fix the problem and run the tests again.
-The tests do not change your saved settings or log files; they use temporary
-files that are cleaned up afterwards.
+The tests use temporary files for their checks. They do not change your saved
+settings, API issue log, or application log. The test results are saved
+separately in the tests log.
 
 The Settings list and the duplicate-program picker use the same shared
 scrollable-list helper. The main results and duplicate-program picker also
-use one helper to resize pictures and prepare them for display. Both log files
-use the same shared log-cleanup helper. Tests that read saved log notes use
-one shared helper to flush and read the file. This keeps those repeated jobs
-in one place, so a future change can be made once and used by every part of
-the program.
+use one helper to resize pictures and prepare them for display. The API and
+application logs use the same shared log-cleanup helper. Tests that read saved
+log notes use one shared helper to flush and read the file. This keeps those
+repeated jobs in one place, so a future change can be made once and used by
+every part of the program.
 
 ## Read the API issue-tracking log
 
@@ -304,6 +317,10 @@ private.
   created, that you have permission to write there, and that its path is
   outside the program folder. The program shows a message explaining that it
   cannot save this problem to the application log until that log can be made.
+- **The tests log cannot be written:** Check its full path in Settings and
+  make sure its folder can be created and written to. The tests still run and
+  their results appear on screen, but the program explains that it could not
+  save them to the tests log.
 - **The log viewer warns about an outside change:** The log no longer matches
   its saved checksum. Keep a copy if you need to investigate it. The program
   still lets you read and copy the log, but it does not edit the old checksum

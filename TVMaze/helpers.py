@@ -8,6 +8,7 @@ import hashlib
 from html.parser import HTMLParser
 import logging
 from io import BytesIO
+from typing import TextIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import tkinter as tk
@@ -23,6 +24,41 @@ from urllib.request import (
 if TYPE_CHECKING:
     from PIL import Image
     from PIL import ImageTk
+
+
+class ConsoleAndFileWriter:
+    """Send test results to the screen and a saved text file together."""
+
+    def __init__(self, screen: TextIO, log_file: TextIO) -> None:
+        """Remember where test results should be displayed and saved."""
+        self.screen = screen
+        self.log_file = log_file
+        self.log_problem: OSError | None = None
+
+    def write(self, text: str) -> int:
+        """Show one piece of test output and save it when the log is available."""
+        self.screen.write(text)
+        if self.log_problem is None:
+            try:
+                self.log_file.write(text)
+            except OSError as error:
+                self.log_problem = error
+        return len(text)
+
+    def writeln(self, text: str | None = None) -> None:
+        """Write one complete line in the format the test runner expects."""
+        if text is not None:
+            self.write(text)
+        self.write("\n")
+
+    def flush(self) -> None:
+        """Make sure both the screen and the saved test notes are up to date."""
+        self.screen.flush()
+        if self.log_problem is None:
+            try:
+                self.log_file.flush()
+            except OSError as error:
+                self.log_problem = error
 
 
 NOT_AVAILABLE = "Not available"

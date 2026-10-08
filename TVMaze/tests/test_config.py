@@ -8,6 +8,7 @@ from pathlib import Path
 from config import (
     DEFAULT_API_ACTIVITY_LOG_FILE,
     DEFAULT_APPLICATION_LOG_FILE,
+    DEFAULT_TESTS_LOG_FILE,
     PROGRAM_FOLDER,
     AppSettings,
     SettingsError,
@@ -38,6 +39,12 @@ class SettingsTests(unittest.TestCase):
         """The default application log should stay outside the program files."""
         self.assertFalse(
             DEFAULT_APPLICATION_LOG_FILE.resolve().is_relative_to(PROGRAM_FOLDER)
+        )
+
+    def test_default_tests_log_is_outside_the_program_folder(self) -> None:
+        """The default tests log should stay outside the program files."""
+        self.assertFalse(
+            DEFAULT_TESTS_LOG_FILE.resolve().is_relative_to(PROGRAM_FOLDER)
         )
 
     def test_saved_settings_remember_the_api_log_location(self) -> None:
@@ -139,6 +146,48 @@ class SettingsTests(unittest.TestCase):
 
         with self.assertRaises(SettingsError):
             save_settings(settings, Path(tempfile.gettempdir()) / "settings.json")
+
+    def test_saved_tests_log_path_is_remembered(self) -> None:
+        """The chosen tests log path should be saved and loaded again."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            settings_path = Path(temporary_folder) / "settings.json"
+            log_path = Path(temporary_folder) / "tests_log"
+            chosen_settings = AppSettings(tests_log_path=str(log_path))
+
+            save_settings(chosen_settings, settings_path)
+            loaded_settings = load_settings(settings_path)
+
+        self.assertEqual(loaded_settings.tests_log_path, str(log_path))
+
+    def test_saved_tests_log_must_be_a_full_path_outside_program_folder(self) -> None:
+        """The tests log must use a full file path outside the program files."""
+        for unsafe_path in (
+            "tests_log",
+            str(PROGRAM_FOLDER / "tests_log"),
+        ):
+            with self.subTest(path=unsafe_path):
+                settings = AppSettings(tests_log_path=unsafe_path)
+
+                with self.assertRaises(SettingsError):
+                    save_settings(
+                        settings,
+                        Path(tempfile.gettempdir()) / "settings.json",
+                    )
+
+    def test_all_logs_must_use_different_files(self) -> None:
+        """The test results must not be mixed with another kind of log."""
+        with tempfile.TemporaryDirectory() as temporary_folder:
+            same_log_file = Path(temporary_folder) / "all_logs"
+            settings = AppSettings(
+                tests_log_path=str(same_log_file),
+                application_log_path=str(same_log_file),
+            )
+
+            with self.assertRaises(SettingsError):
+                save_settings(
+                    settings,
+                    Path(temporary_folder) / "settings.json",
+                )
 
     def test_api_and_application_logs_must_use_different_files(self) -> None:
         """API and application notes must not be mixed into one file."""

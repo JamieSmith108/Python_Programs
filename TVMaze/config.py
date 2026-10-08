@@ -22,6 +22,7 @@ USER_DATA_FOLDER = Path(
 ) / "TVMazeShowFinder"
 DEFAULT_API_ACTIVITY_LOG_FILE = USER_DATA_FOLDER / "API_activity_logging.log"
 DEFAULT_APPLICATION_LOG_FILE = USER_DATA_FOLDER / "application_log"
+DEFAULT_TESTS_LOG_FILE = USER_DATA_FOLDER / "tests_log"
 
 # Every top-level show field returned by the TVMaze show endpoint
 SHOW_FIELD_OPTIONS = (
@@ -82,6 +83,7 @@ class AppSettings:
     selected_show_fields: tuple[str, ...] = DEFAULT_SELECTED_SHOW_FIELDS
     api_activity_log_path: str = str(DEFAULT_API_ACTIVITY_LOG_FILE)
     application_log_path: str = str(DEFAULT_APPLICATION_LOG_FILE)
+    tests_log_path: str = str(DEFAULT_TESTS_LOG_FILE)
 
 
 class SettingsError(Exception):
@@ -147,24 +149,23 @@ def check_settings(settings: AppSettings) -> None:
         raise ValueError("The window title cannot be empty.")
     if not isinstance(settings.tvmaze_api_url, str):
         raise ValueError("The TVMaze API address must be text.")
-    if not isinstance(settings.api_activity_log_path, str):
-        raise ValueError("The API troubleshooting log location must be text.")
-    if not settings.api_activity_log_path.strip():
-        raise ValueError("The API troubleshooting log location cannot be empty.")
-    if not isinstance(settings.application_log_path, str):
-        raise ValueError("The application log location must be text.")
-    if not settings.application_log_path.strip():
-        raise ValueError("The application log location cannot be empty.")
-
-    check_log_file_location(
-        settings.api_activity_log_path,
-        "API troubleshooting",
+    log_file_locations = (
+        ("API troubleshooting", settings.api_activity_log_path),
+        ("application", settings.application_log_path),
+        ("tests", settings.tests_log_path),
     )
-    check_log_file_location(settings.application_log_path, "application")
-    if (
-        Path(settings.api_activity_log_path).expanduser().resolve()
-        == Path(settings.application_log_path).expanduser().resolve()
-    ):
+    for log_purpose, log_file_path in log_file_locations:
+        if not isinstance(log_file_path, str):
+            raise ValueError(f"The {log_purpose} log location must be text.")
+        if not log_file_path.strip():
+            raise ValueError(f"The {log_purpose} log location cannot be empty.")
+        check_log_file_location(log_file_path, log_purpose)
+
+    saved_log_paths = {
+        Path(log_file_path).expanduser().resolve()
+        for _, log_file_path in log_file_locations
+    }
+    if len(saved_log_paths) != len(log_file_locations):
         raise ValueError("Choose a different file for each kind of log.")
 
     number_settings = {

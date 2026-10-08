@@ -35,8 +35,8 @@ class SettingsWindow:
         self.settings_saved = settings_saved
         self.window = tk.Toplevel(main_window)
         self.window.title("Settings")
-        self.window.geometry("760x740")
-        self.window.minsize(680, 650)
+        self.window.geometry("760x780")
+        self.window.minsize(680, 690)
         self.window.transient(main_window)
         self.window.grab_set()
 
@@ -85,6 +85,11 @@ class SettingsWindow:
                 "Application log file (full path)",
                 "application_log_path",
                 self.current_settings.application_log_path,
+            ),
+            (
+                "Tests log file (full path)",
+                "tests_log_path",
+                self.current_settings.tests_log_path,
             ),
         ]
 
@@ -141,6 +146,14 @@ class SettingsWindow:
                 "application log",
             ),
         ).pack(side="left")
+        ttk.Button(
+            button_row,
+            text="View tests log",
+            command=lambda: self.view_log_file(
+                "tests_log_path",
+                "tests log",
+            ),
+        ).pack(side="left", padx=(8, 0))
 
         return first_button_row + 2
 
@@ -270,6 +283,7 @@ class SettingsWindow:
             application_log_path=self.setting_boxes[
                 "application_log_path"
             ].get().strip(),
+            tests_log_path=self.setting_boxes["tests_log_path"].get().strip(),
             selected_show_fields=tuple(
                 field_name
                 for field_name, checked in self.field_checks.items()

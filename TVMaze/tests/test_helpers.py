@@ -2,7 +2,7 @@
 
 import unittest
 import logging
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -11,6 +11,7 @@ from urllib.request import Request
 from PIL import Image
 
 from helpers import (
+    ConsoleAndFileWriter,
     DoNotFollowWebsiteRedirects,
     is_allowed_tvmaze_api_address,
     is_allowed_tvmaze_image_address,
@@ -39,6 +40,18 @@ class HelperFunctionTests(unittest.TestCase):
     def test_read_text_trims_spaces(self) -> None:
         """Text values should not keep spaces around the words."""
         self.assertEqual(read_text("  Doctor Who  "), "Doctor Who")
+
+    def test_console_and_file_writer_sends_results_to_both_places(self) -> None:
+        """Test output should stay on screen and also be saved in the log."""
+        screen = StringIO()
+        log_file = StringIO()
+        result_writer = ConsoleAndFileWriter(screen, log_file)
+
+        result_writer.writeln("Two tests passed.")
+        result_writer.flush()
+
+        self.assertEqual(screen.getvalue(), "Two tests passed.\n")
+        self.assertEqual(log_file.getvalue(), "Two tests passed.\n")
 
     def test_read_text_uses_fallback_for_empty_value(self) -> None:
         """An empty value should use the helpful default message."""

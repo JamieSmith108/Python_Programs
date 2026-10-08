@@ -13,11 +13,15 @@ from settings_window import SettingsWindow
 class SettingsLogViewerTests(unittest.TestCase):
     """Check that log buttons show the chosen file in the safe viewer."""
 
-    def make_settings_window(self, log_file_path: Path) -> SettingsWindow:
+    def make_settings_window(
+        self,
+        log_file_path: Path,
+        setting_name: str = "api_activity_log_path",
+    ) -> SettingsWindow:
         """Make a settings window shell that does not create a real window."""
         settings_window = SettingsWindow.__new__(SettingsWindow)
         settings_window.setting_boxes = {
-            "api_activity_log_path": Mock(get=Mock(return_value=str(log_file_path)))
+            setting_name: Mock(get=Mock(return_value=str(log_file_path)))
         }
         settings_window.window = Mock()
         return settings_window
@@ -121,6 +125,32 @@ class SettingsLogViewerTests(unittest.TestCase):
         )
         log_issue.assert_called_once()
         self.assertIn("changed outside", log_issue.call_args.args[0])
+
+    def test_tests_log_is_shown_in_the_read_only_viewer(self) -> None:
+        """The Settings button should open saved test results for reading."""
+        with tempfile.TemporaryDirectory() as folder:
+            log_file_path = Path(folder) / "tests_log"
+            log_file_path.write_text("Ran 5 tests.\nOK\n", encoding="utf-8")
+            save_log_checksum(
+                log_file_path,
+                Path(f"{log_file_path}.sha256"),
+            )
+            settings_window = self.make_settings_window(
+                log_file_path,
+                "tests_log_path",
+            )
+
+            with patch(
+                "settings_window.show_read_only_text_window"
+            ) as show_read_only_window:
+                settings_window.view_log_file("tests_log_path", "tests log")
+
+        show_read_only_window.assert_called_once_with(
+            settings_window.window,
+            "Read tests log",
+            "Ran 5 tests.\nOK\n",
+            False,
+        )
 
     def test_failed_new_log_locations_restore_the_previous_settings(self) -> None:
         """A log setup failure should restore the original active log locations."""
