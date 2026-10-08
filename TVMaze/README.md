@@ -203,6 +203,38 @@ and explains the problem without showing unusable information.
 - `tests` contains checks that help make sure the program works.
 - `requirements.txt` lists the extra library needed to display pictures.
 
+## Run the tests
+
+Tests are small automatic checks. They try different situations and compare
+what the program does with what it should do. For example, tests check that
+the program rejects unsafe website addresses, handles missing or broken
+information, saves useful log notes, and explains problems in a clear way.
+
+Most tests do not contact the real TVMaze website or open a real program
+window. They use pretend website replies and temporary files instead. This
+makes the tests safer and helps them give the same result each time.
+
+To run the tests, open PowerShell in the TVMaze folder, turn on the project's
+private Python environment, and run:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m unittest discover -s tests
+```
+
+If the environment is already turned on, run only the test command. You can
+also run it without turning on the environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+When everything is working, the last lines say how many tests ran and show
+`OK`. If a test finds a problem, the last lines say `FAILED` and explain which
+check did not get the expected result. Fix the problem and run the tests again.
+The tests do not change your saved settings or log files; they use temporary
+files that are cleaned up afterwards.
+
 The Settings list and the duplicate-program picker use the same shared
 scrollable-list helper. The main results and duplicate-program picker also
 use one helper to resize pictures and prepare them for display. Both log files
